@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- track-length = 3088 filtered ascend = 1 plain-ascend = 1 cost=3088 energy=0.0kwh time=4m 7s -->
+<gpx 
+ xmlns="http://www.topografix.com/GPX/1/1" 
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" 
+ version="1.1" 
+ creator="BRouter-Web 0.18.1">
+ <trk>
+  <name>AlmereParkwijk_AlmereBuiten</name>
+  <trkseg>
+   <trkpt lat="52.376716" lon="5.244695"><ele>-1.5</ele></trkpt>
+   <trkpt lat="52.376718" lon="5.244711"><ele>-1.5</ele></trkpt>
+   <trkpt lat="52.376781" lon="5.245263"><ele>-1.5</ele></trkpt>
+   <trkpt lat="52.376818" lon="5.24556"><ele>-1.5</ele></trkpt>
+   <trkpt lat="52.376828" lon="5.245643"><ele>-1.75</ele></trkpt>
+   <trkpt lat="52.376903" lon="5.246205"><ele>-2.25</ele></trkpt>
+   <trkpt lat="52.377036" lon="5.247125"><ele>-3</ele></trkpt>
+   <trkpt lat="52.377085" lon="5.247439"><ele>-3</ele></trkpt>
+   <trkpt lat="52.377225" lon="5.248286"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.377321" lon="5.248824"><ele>-3</ele></trkpt>
+   <trkpt lat="52.377431" lon="5.249416"><ele>-3</ele></trkpt>
+   <trkpt lat="52.377587" lon="5.250196"><ele>-3</ele></trkpt>
+   <trkpt lat="52.377682" lon="5.250641"><ele>-3</ele></trkpt>
+   <trkpt lat="52.377866" lon="5.251447"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.377985" lon="5.251934"><ele>-3.5</ele></trkpt>
+   <trkpt lat="52.378285" lon="5.253089"><ele>-3.5</ele></trkpt>
+   <trkpt lat="52.378438" lon="5.253641"><ele>-3</ele></trkpt>
+   <trkpt lat="52.378622" lon="5.254272"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.378922" lon="5.255237"><ele>-4.5</ele></trkpt>
+   <trkpt lat="52.379209" lon="5.256101"><ele>-4.25</ele></trkpt>
+   <trkpt lat="52.379389" lon="5.256618"><ele>-4.5</ele></trkpt>
+   <trkpt lat="52.379729" lon="5.257542"><ele>-3.5</ele></trkpt>
+   <trkpt lat="52.380055" lon="5.258376"><ele>-2</ele></trkpt>
+   <trkpt lat="52.380202" lon="5.258736"><ele>-2.75</ele></trkpt>
+   <trkpt lat="52.380644" lon="5.259765"><ele>-4</ele></trkpt>
+   <trkpt lat="52.380979" lon="5.260498"><ele>-4</ele></trkpt>
+   <trkpt lat="52.381482" lon="5.261537"><ele>-4.25</ele></trkpt>
+   <trkpt lat="52.381784" lon="5.262123"><ele>-4</ele></trkpt>
+   <trkpt lat="52.38204" lon="5.262603"><ele>-4</ele></trkpt>
+   <trkpt lat="52.38236" lon="5.263175"><ele>-4.25</ele></trkpt>
+   <trkpt lat="52.382846" lon="5.264009"><ele>-4.75</ele></trkpt>
+   <trkpt lat="52.383408" lon="5.264892"><ele>-4.75</ele></trkpt>
+   <trkpt lat="52.383889" lon="5.2656"><ele>-4.25</ele></trkpt>
+   <trkpt lat="52.384165" lon="5.26599"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.38447" lon="5.26641"><ele>-2.75</ele></trkpt>
+   <trkpt lat="52.384924" lon="5.267009"><ele>-2</ele></trkpt>
+   <trkpt lat="52.385403" lon="5.267611"><ele>-2.5</ele></trkpt>
+   <trkpt lat="52.385921" lon="5.268223"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.386262" lon="5.268606"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.386791" lon="5.269173"><ele>-3</ele></trkpt>
+   <trkpt lat="52.387139" lon="5.269529"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.389046" lon="5.271406"><ele>-3.5</ele></trkpt>
+   <trkpt lat="52.389227" lon="5.271585"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.389987" lon="5.272349"><ele>-4</ele></trkpt>
+   <trkpt lat="52.390389" lon="5.272779"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.39095" lon="5.27341"><ele>-2.75</ele></trkpt>
+   <trkpt lat="52.391316" lon="5.273845"><ele>-2.5</ele></trkpt>
+   <trkpt lat="52.391709" lon="5.274331"><ele>-1.75</ele></trkpt>
+   <trkpt lat="52.392219" lon="5.274998"><ele>-0.5</ele></trkpt>
+   <trkpt lat="52.392495" lon="5.275375"><ele>-0.25</ele></trkpt>
+   <trkpt lat="52.392791" lon="5.275794"><ele>-0.5</ele></trkpt>
+   <trkpt lat="52.393215" lon="5.276424"><ele>0</ele></trkpt>
+   <trkpt lat="52.393256" lon="5.276486"><ele>0</ele></trkpt>
+   <trkpt lat="52.39327" lon="5.276508"><ele>0</ele></trkpt>
+   <trkpt lat="52.393419" lon="5.276736"><ele>0</ele></trkpt>
+   <trkpt lat="52.393523" lon="5.276897"><ele>-0.25</ele></trkpt>
+   <trkpt lat="52.393685" lon="5.277154"><ele>-0.75</ele></trkpt>
+   <trkpt lat="52.393839" lon="5.277404"><ele>-0.75</ele></trkpt>
+   <trkpt lat="52.393853" lon="5.277428"><ele>-0.75</ele></trkpt>
+   <trkpt lat="52.393998" lon="5.277666"/>
+   <trkpt lat="52.394178" lon="5.277974"/>
+  </trkseg>
+ </trk>
+</gpx>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- track-length = 2772 filtered ascend = 2 plain-ascend = 1 cost=2772 energy=0.0kwh time=3m 42s -->
+<gpx 
+ xmlns="http://www.topografix.com/GPX/1/1" 
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" 
+ version="1.1" 
+ creator="BRouter-Web 0.18.1">
+ <trk>
+  <name>DeVink_LeidenCentraal</name>
+  <trkseg>
+   <trkpt lat="52.147197" lon="4.456282"><ele>3</ele></trkpt>
+   <trkpt lat="52.147201" lon="4.456286"><ele>3</ele></trkpt>
+   <trkpt lat="52.147611" lon="4.45676"><ele>2</ele></trkpt>
+   <trkpt lat="52.14811" lon="4.457358"><ele>3.25</ele></trkpt>
+   <trkpt lat="52.14813" lon="4.457382"><ele>3.25</ele></trkpt>
+   <trkpt lat="52.148135" lon="4.457389"><ele>3.25</ele></trkpt>
+   <trkpt lat="52.148905" lon="4.458351"><ele>5</ele></trkpt>
+   <trkpt lat="52.148911" lon="4.458359"><ele>5</ele></trkpt>
+   <trkpt lat="52.149865" lon="4.459601"><ele>3.5</ele></trkpt>
+   <trkpt lat="52.150206" lon="4.460053"><ele>3.75</ele></trkpt>
+   <trkpt lat="52.151327" lon="4.461554"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.151379" lon="4.461623"><ele>2.5</ele></trkpt>
+   <trkpt lat="52.151787" lon="4.46217"><ele>1.25</ele></trkpt>
+   <trkpt lat="52.151877" lon="4.46229"><ele>1</ele></trkpt>
+   <trkpt lat="52.152064" lon="4.462539"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.152087" lon="4.462569"><ele>1</ele></trkpt>
+   <trkpt lat="52.154217" lon="4.465382"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.155352" lon="4.466896"><ele>0.25</ele></trkpt>
+   <trkpt lat="52.155562" lon="4.467176"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.156236" lon="4.468079"><ele>1.25</ele></trkpt>
+   <trkpt lat="52.156529" lon="4.468472"><ele>1</ele></trkpt>
+   <trkpt lat="52.156665" lon="4.468656"><ele>1</ele></trkpt>
+   <trkpt lat="52.156763" lon="4.468785"><ele>1</ele></trkpt>
+   <trkpt lat="52.156805" lon="4.46884"><ele>1</ele></trkpt>
+   <trkpt lat="52.157708" lon="4.47005"><ele>1</ele></trkpt>
+   <trkpt lat="52.157879" lon="4.470278"><ele>1.25</ele></trkpt>
+   <trkpt lat="52.158755" lon="4.471445"><ele>1.25</ele></trkpt>
+   <trkpt lat="52.158929" lon="4.471686"><ele>1.25</ele></trkpt>
+   <trkpt lat="52.159202" lon="4.472046"><ele>1.25</ele></trkpt>
+   <trkpt lat="52.159621" lon="4.472613"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.159638" lon="4.472636"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.15982" lon="4.472884"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.160005" lon="4.473174"><ele>1.75</ele></trkpt>
+   <trkpt lat="52.160164" lon="4.473447"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.160266" lon="4.473622"><ele>2.5</ele></trkpt>
+   <trkpt lat="52.160287" lon="4.473659"><ele>2.5</ele></trkpt>
+   <trkpt lat="52.160494" lon="4.473987"><ele>2.5</ele></trkpt>
+   <trkpt lat="52.161067" lon="4.474773"><ele>1.75</ele></trkpt>
+   <trkpt lat="52.161381" lon="4.475237"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.161624" lon="4.475622"><ele>1.75</ele></trkpt>
+   <trkpt lat="52.16194" lon="4.476087"><ele>3.25</ele></trkpt>
+   <trkpt lat="52.162105" lon="4.476314"><ele>4</ele></trkpt>
+   <trkpt lat="52.163024" lon="4.47758"><ele>3.5</ele></trkpt>
+   <trkpt lat="52.163479" lon="4.478206"><ele>2</ele></trkpt>
+   <trkpt lat="52.163873" lon="4.478749"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.164082" lon="4.479041"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.164098" lon="4.479063"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.164123" lon="4.479099"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.164867" lon="4.480165"><ele>4.5</ele></trkpt>
+   <trkpt lat="52.165147" lon="4.480572"><ele>4.25</ele></trkpt>
+   <trkpt lat="52.165634" lon="4.481264"/>
+   <trkpt lat="52.165872" lon="4.481591"/>
+   <trkpt lat="52.166055" lon="4.48184"/>
+   <trkpt lat="52.166334" lon="4.482208"/>
+  </trkseg>
+ </trk>
+</gpx>

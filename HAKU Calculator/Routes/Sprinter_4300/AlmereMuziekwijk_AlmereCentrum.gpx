@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- track-length = 2164 filtered ascend = 3 plain-ascend = 3 cost=2164 energy=0.0kwh time=2m 53s -->
+<gpx 
+ xmlns="http://www.topografix.com/GPX/1/1" 
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" 
+ version="1.1" 
+ creator="BRouter-Web 0.18.1">
+ <trk>
+  <name>AlmereMuziekwijk_AlmereCentrum</name>
+  <trkseg>
+   <trkpt lat="52.367637" lon="5.190562"><ele>-2.25</ele></trkpt>
+   <trkpt lat="52.367845" lon="5.191007"><ele>-2.25</ele></trkpt>
+   <trkpt lat="52.36799" lon="5.191319"><ele>-2.25</ele></trkpt>
+   <trkpt lat="52.368076" lon="5.191502"><ele>-2.25</ele></trkpt>
+   <trkpt lat="52.36848" lon="5.192365"><ele>-2.75</ele></trkpt>
+   <trkpt lat="52.368632" lon="5.192691"><ele>-3</ele></trkpt>
+   <trkpt lat="52.36877" lon="5.192986"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.36888" lon="5.19322"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.369435" lon="5.194409"><ele>-3</ele></trkpt>
+   <trkpt lat="52.369522" lon="5.194596"><ele>-3</ele></trkpt>
+   <trkpt lat="52.369775" lon="5.195146"><ele>-3</ele></trkpt>
+   <trkpt lat="52.370223" lon="5.19616"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.370475" lon="5.196764"><ele>-3.5</ele></trkpt>
+   <trkpt lat="52.370812" lon="5.197617"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.371279" lon="5.198889"><ele>-3</ele></trkpt>
+   <trkpt lat="52.371654" lon="5.200009"><ele>-2</ele></trkpt>
+   <trkpt lat="52.371716" lon="5.200205"><ele>-1.75</ele></trkpt>
+   <trkpt lat="52.371837" lon="5.200589"><ele>-1.5</ele></trkpt>
+   <trkpt lat="52.372089" lon="5.20143"><ele>-1.25</ele></trkpt>
+   <trkpt lat="52.372203" lon="5.201829"><ele>-1</ele></trkpt>
+   <trkpt lat="52.372372" lon="5.202446"><ele>-0.75</ele></trkpt>
+   <trkpt lat="52.372625" lon="5.20343"><ele>0</ele></trkpt>
+   <trkpt lat="52.372873" lon="5.204494"><ele>-0.75</ele></trkpt>
+   <trkpt lat="52.372917" lon="5.204688"><ele>-1</ele></trkpt>
+   <trkpt lat="52.37312" lon="5.205651"><ele>-1.5</ele></trkpt>
+   <trkpt lat="52.373196" lon="5.20604"><ele>-1.75</ele></trkpt>
+   <trkpt lat="52.373282" lon="5.206494"><ele>-1.75</ele></trkpt>
+   <trkpt lat="52.373421" lon="5.207286"><ele>-2</ele></trkpt>
+   <trkpt lat="52.373429" lon="5.207333"><ele>-2</ele></trkpt>
+   <trkpt lat="52.373477" lon="5.207621"><ele>-2.25</ele></trkpt>
+   <trkpt lat="52.373499" lon="5.207758"><ele>-2.25</ele></trkpt>
+   <trkpt lat="52.373756" lon="5.209419"><ele>-2.5</ele></trkpt>
+   <trkpt lat="52.373804" lon="5.209734"><ele>-2.75</ele></trkpt>
+   <trkpt lat="52.373982" lon="5.210912"><ele>-2.75</ele></trkpt>
+   <trkpt lat="52.374014" lon="5.211126"><ele>-3</ele></trkpt>
+   <trkpt lat="52.374126" lon="5.211866"><ele>-3</ele></trkpt>
+   <trkpt lat="52.374396" lon="5.213652"><ele>0</ele></trkpt>
+   <trkpt lat="52.374416" lon="5.21378"><ele>0</ele></trkpt>
+   <trkpt lat="52.37448" lon="5.214272"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.374535" lon="5.214749"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.37458" lon="5.215232"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.374605" lon="5.215496"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.374612" lon="5.215565"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.374619" lon="5.215635"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.37464" lon="5.215847"><ele>1</ele></trkpt>
+   <trkpt lat="52.374653" lon="5.21598"><ele>1</ele></trkpt>
+   <trkpt lat="52.374696" lon="5.216389"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.374761" lon="5.216933"><ele>0.25</ele></trkpt>
+   <trkpt lat="52.374797" lon="5.217206"><ele>0.25</ele></trkpt>
+   <trkpt lat="52.374878" lon="5.217782"/>
+   <trkpt lat="52.374916" lon="5.218036"/>
+   <trkpt lat="52.375026" lon="5.218733"/>
+   <trkpt lat="52.375031" lon="5.21876"/>
+   <trkpt lat="52.375084" lon="5.219065"/>
+   <trkpt lat="52.375138" lon="5.219353"/>
+  </trkseg>
+ </trk>
+</gpx>

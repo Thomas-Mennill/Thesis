@@ -1,0 +1,42 @@
+const popup = new maplibregl.Popup({
+    closeButton: false,
+    closeOnClick: false
+});
+
+map.on("mouseenter", "my-railways", (e) => {
+
+    map.getCanvas().style.cursor = "pointer";
+
+    const feature = e.features[0];
+
+    // Get all attributes
+    const properties = feature.properties;
+
+    let html = "<strong>Railway section</strong><br><br>";
+
+    for (const [key, value] of Object.entries(properties)) {
+
+        if (value !== null && value !== "") {
+            html += `<strong>${key}:</strong> ${value}<br>`;
+        }
+    }
+
+    popup
+        .setLngLat(e.lngLat)
+        .setHTML(html)
+        .addTo(map);
+});
+
+map.on("mousemove", "my-railways", (e) => {
+
+    if (e.features.length > 0) {
+        popup.setLngLat(e.lngLat);
+    }
+});
+
+map.on("mouseleave", "my-railways", () => {
+
+    map.getCanvas().style.cursor = "";
+    popup.remove();
+
+});
