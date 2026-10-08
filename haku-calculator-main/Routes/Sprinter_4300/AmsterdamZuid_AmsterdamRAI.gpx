@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- track-length = 1206 filtered ascend = 4 plain-ascend = 1 cost=1206 energy=0.0kwh time=1m 36s -->
+<gpx 
+ xmlns="http://www.topografix.com/GPX/1/1" 
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" 
+ version="1.1" 
+ creator="BRouter-Web 0.18.1">
+ <trk>
+  <name>AmsterdamZuid_AmsterdamRAI</name>
+  <trkseg>
+   <trkpt lat="52.33883" lon="4.873441"><ele>3.25</ele></trkpt>
+   <trkpt lat="52.338862" lon="4.874209"><ele>4.5</ele></trkpt>
+   <trkpt lat="52.338877" lon="4.87458"><ele>5</ele></trkpt>
+   <trkpt lat="52.33889" lon="4.874925"><ele>5.5</ele></trkpt>
+   <trkpt lat="52.338916" lon="4.875542"><ele>5.25</ele></trkpt>
+   <trkpt lat="52.338923" lon="4.875704"><ele>5.25</ele></trkpt>
+   <trkpt lat="52.338944" lon="4.876227"><ele>5</ele></trkpt>
+   <trkpt lat="52.338974" lon="4.876934"><ele>5</ele></trkpt>
+   <trkpt lat="52.338982" lon="4.877144"><ele>5</ele></trkpt>
+   <trkpt lat="52.338984" lon="4.877196"><ele>5</ele></trkpt>
+   <trkpt lat="52.338998" lon="4.877517"><ele>5</ele></trkpt>
+   <trkpt lat="52.339055" lon="4.878915"><ele>7.25</ele></trkpt>
+   <trkpt lat="52.339171" lon="4.880842"><ele>7</ele></trkpt>
+   <trkpt lat="52.339188" lon="4.881428"><ele>7.5</ele></trkpt>
+   <trkpt lat="52.33918" lon="4.882103"><ele>7.25</ele></trkpt>
+   <trkpt lat="52.33914" lon="4.882784"><ele>6</ele></trkpt>
+   <trkpt lat="52.339116" lon="4.883058"><ele>5.25</ele></trkpt>
+   <trkpt lat="52.339034" lon="4.883777"><ele>4</ele></trkpt>
+   <trkpt lat="52.33899" lon="4.884091"><ele>3.75</ele></trkpt>
+   <trkpt lat="52.338898" lon="4.884654"><ele>3.5</ele></trkpt>
+   <trkpt lat="52.338759" lon="4.885356"><ele>4</ele></trkpt>
+   <trkpt lat="52.338626" lon="4.885933"><ele>4.5</ele></trkpt>
+   <trkpt lat="52.338543" lon="4.886247"><ele>4.75</ele></trkpt>
+   <trkpt lat="52.338384" lon="4.886803"><ele>5</ele></trkpt>
+   <trkpt lat="52.338305" lon="4.887054"><ele>4.75</ele></trkpt>
+   <trkpt lat="52.338223" lon="4.887303"><ele>4.5</ele></trkpt>
+   <trkpt lat="52.338035" lon="4.887829"><ele>4.5</ele></trkpt>
+   <trkpt lat="52.337813" lon="4.888388"><ele>5.5</ele></trkpt>
+   <trkpt lat="52.337743" lon="4.88855"><ele>5.5</ele></trkpt>
+   <trkpt lat="52.33772" lon="4.888604"><ele>5.25</ele></trkpt>
+   <trkpt lat="52.337686" lon="4.888682"><ele>5.25</ele></trkpt>
+   <trkpt lat="52.337661" lon="4.888738"><ele>5.25</ele></trkpt>
+   <trkpt lat="52.337465" lon="4.88917"><ele>4.75</ele></trkpt>
+   <trkpt lat="52.337306" lon="4.889493"><ele>4</ele></trkpt>
+   <trkpt lat="52.337232" lon="4.889639"><ele>4</ele></trkpt>
+   <trkpt lat="52.337141" lon="4.889819"><ele>3.75</ele></trkpt>
+   <trkpt lat="52.337047" lon="4.890002"><ele>4</ele></trkpt>
+   <trkpt lat="52.336992" lon="4.890109"/>
+   <trkpt lat="52.33696" lon="4.89017"/>
+  </trkseg>
+ </trk>
+</gpx>

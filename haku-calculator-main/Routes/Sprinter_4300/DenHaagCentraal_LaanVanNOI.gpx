@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- track-length = 1419 filtered ascend = 9 plain-ascend = 1 cost=1419 energy=0.0kwh time=1m 54s -->
+<gpx 
+ xmlns="http://www.topografix.com/GPX/1/1" 
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" 
+ version="1.1" 
+ creator="BRouter-Web 0.18.1">
+ <trk>
+  <name>DenHaagCentraal_LaanVanNOI</name>
+  <trkseg>
+   <trkpt lat="52.079627" lon="4.326278"><ele>5.25</ele></trkpt>
+   <trkpt lat="52.079166" lon="4.326869"><ele>1.75</ele></trkpt>
+   <trkpt lat="52.078891" lon="4.327219"><ele>1</ele></trkpt>
+   <trkpt lat="52.078504" lon="4.327839"><ele>-0.25</ele></trkpt>
+   <trkpt lat="52.078295" lon="4.328171"><ele>-0.75</ele></trkpt>
+   <trkpt lat="52.078169" lon="4.328374"><ele>-0.5</ele></trkpt>
+   <trkpt lat="52.07783" lon="4.328806"><ele>0.25</ele></trkpt>
+   <trkpt lat="52.077763" lon="4.328894"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.077678" lon="4.329006"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.077561" lon="4.329163"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.077508" lon="4.329235"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.077262" lon="4.329573"><ele>1.25</ele></trkpt>
+   <trkpt lat="52.077122" lon="4.329779"><ele>1</ele></trkpt>
+   <trkpt lat="52.076884" lon="4.330178"><ele>1</ele></trkpt>
+   <trkpt lat="52.076734" lon="4.330465"><ele>1</ele></trkpt>
+   <trkpt lat="52.076603" lon="4.330741"><ele>1</ele></trkpt>
+   <trkpt lat="52.076493" lon="4.330993"><ele>1</ele></trkpt>
+   <trkpt lat="52.076367" lon="4.331312"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.076211" lon="4.331777"><ele>2</ele></trkpt>
+   <trkpt lat="52.076116" lon="4.33214"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.07603" lon="4.332549"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.075962" lon="4.332989"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.075926" lon="4.333313"><ele>2</ele></trkpt>
+   <trkpt lat="52.075926" lon="4.333314"><ele>2</ele></trkpt>
+   <trkpt lat="52.075919" lon="4.3334"><ele>2</ele></trkpt>
+   <trkpt lat="52.075902" lon="4.333664"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.075888" lon="4.334119"><ele>3.75</ele></trkpt>
+   <trkpt lat="52.075898" lon="4.334525"><ele>5.25</ele></trkpt>
+   <trkpt lat="52.075933" lon="4.33501"><ele>7</ele></trkpt>
+   <trkpt lat="52.075996" lon="4.335484"><ele>7.5</ele></trkpt>
+   <trkpt lat="52.076062" lon="4.335843"><ele>8.25</ele></trkpt>
+   <trkpt lat="52.076119" lon="4.336104"><ele>9.5</ele></trkpt>
+   <trkpt lat="52.076161" lon="4.336265"><ele>10.5</ele></trkpt>
+   <trkpt lat="52.076201" lon="4.336417"><ele>11.5</ele></trkpt>
+   <trkpt lat="52.076357" lon="4.336934"><ele>14.25</ele></trkpt>
+   <trkpt lat="52.076461" lon="4.337239"><ele>14</ele></trkpt>
+   <trkpt lat="52.07656" lon="4.337505"><ele>13.5</ele></trkpt>
+   <trkpt lat="52.076728" lon="4.337924"><ele>11.25</ele></trkpt>
+   <trkpt lat="52.076942" lon="4.338418"><ele>8.5</ele></trkpt>
+   <trkpt lat="52.077056" lon="4.338676"><ele>8.25</ele></trkpt>
+   <trkpt lat="52.07718" lon="4.338957"><ele>8</ele></trkpt>
+   <trkpt lat="52.077331" lon="4.339355"><ele>7.5</ele></trkpt>
+   <trkpt lat="52.077482" lon="4.339751"><ele>6.75</ele></trkpt>
+   <trkpt lat="52.077556" lon="4.33992"><ele>6.25</ele></trkpt>
+   <trkpt lat="52.07758" lon="4.339975"><ele>6.25</ele></trkpt>
+   <trkpt lat="52.078741" lon="4.342604"><ele>5.75</ele></trkpt>
+   <trkpt lat="52.078905" lon="4.342977"><ele>5.5</ele></trkpt>
+   <trkpt lat="52.078946" lon="4.343071"><ele>5.75</ele></trkpt>
+  </trkseg>
+ </trk>
+</gpx>

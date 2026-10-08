@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- track-length = 1524 filtered ascend = 5 plain-ascend = 2 cost=1524 energy=0.0kwh time=2m 2s -->
+<gpx 
+ xmlns="http://www.topografix.com/GPX/1/1" 
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" 
+ version="1.1" 
+ creator="BRouter-Web 0.18.1">
+ <trk>
+  <name>Duivendrecht_DiemenZuid</name>
+  <trkseg>
+   <trkpt lat="52.323463" lon="4.936643"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.323572" lon="4.936956"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.323683" lon="4.937271"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.323734" lon="4.937414"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.323739" lon="4.937429"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.323794" lon="4.937586"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.323802" lon="4.937609"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.323946" lon="4.938007"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.324137" lon="4.938494"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.32428" lon="4.938835"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.324422" lon="4.939152"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.324687" lon="4.939705"><ele>2</ele></trkpt>
+   <trkpt lat="52.324745" lon="4.939822"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.324969" lon="4.940281"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.325102" lon="4.940576"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.325292" lon="4.941027"><ele>2</ele></trkpt>
+   <trkpt lat="52.325473" lon="4.941506"><ele>1.75</ele></trkpt>
+   <trkpt lat="52.325531" lon="4.941668"><ele>2</ele></trkpt>
+   <trkpt lat="52.325931" lon="4.942832"><ele>3</ele></trkpt>
+   <trkpt lat="52.326602" lon="4.944788"><ele>3.25</ele></trkpt>
+   <trkpt lat="52.326672" lon="4.944991"><ele>3.75</ele></trkpt>
+   <trkpt lat="52.326739" lon="4.945186"><ele>3.5</ele></trkpt>
+   <trkpt lat="52.326794" lon="4.945347"><ele>3.5</ele></trkpt>
+   <trkpt lat="52.326908" lon="4.94568"><ele>3</ele></trkpt>
+   <trkpt lat="52.327076" lon="4.946169"><ele>2.5</ele></trkpt>
+   <trkpt lat="52.327262" lon="4.946707"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.327353" lon="4.946973"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.327463" lon="4.947297"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.327627" lon="4.947814"><ele>3.25</ele></trkpt>
+   <trkpt lat="52.327675" lon="4.947974"><ele>3.5</ele></trkpt>
+   <trkpt lat="52.328084" lon="4.949337"><ele>4</ele></trkpt>
+   <trkpt lat="52.328109" lon="4.949421"><ele>4.25</ele></trkpt>
+   <trkpt lat="52.328277" lon="4.949964"><ele>5.5</ele></trkpt>
+   <trkpt lat="52.328453" lon="4.950485"><ele>5</ele></trkpt>
+   <trkpt lat="52.328898" lon="4.951781"><ele>3.5</ele></trkpt>
+   <trkpt lat="52.329034" lon="4.952178"><ele>3</ele></trkpt>
+   <trkpt lat="52.32909" lon="4.952341"><ele>3</ele></trkpt>
+   <trkpt lat="52.32914" lon="4.952487"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.329143" lon="4.952495"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.329149" lon="4.952514"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.329278" lon="4.952891"><ele>2.5</ele></trkpt>
+   <trkpt lat="52.329692" lon="4.954095"><ele>2.5</ele></trkpt>
+   <trkpt lat="52.329861" lon="4.954589"><ele>3.5</ele></trkpt>
+   <trkpt lat="52.329888" lon="4.954671"><ele>3.75</ele></trkpt>
+   <trkpt lat="52.330049" lon="4.955138"><ele>4.25</ele></trkpt>
+   <trkpt lat="52.330098" lon="4.95528"><ele>3.75</ele></trkpt>
+   <trkpt lat="52.330291" lon="4.955842"><ele>2.5</ele></trkpt>
+   <trkpt lat="52.330335" lon="4.95597"><ele>2</ele></trkpt>
+  </trkseg>
+ </trk>
+</gpx>

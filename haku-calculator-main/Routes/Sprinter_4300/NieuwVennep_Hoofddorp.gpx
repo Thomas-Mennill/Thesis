@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- track-length = 5276 filtered ascend = 3 plain-ascend = 2 cost=5276 energy=0.1kwh time=7m 2s -->
+<gpx 
+ xmlns="http://www.topografix.com/GPX/1/1" 
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" 
+ version="1.1" 
+ creator="BRouter-Web 0.18.1">
+ <trk>
+  <name>NieuwVennep_Hoofddorp</name>
+  <trkseg>
+   <trkpt lat="52.258838" lon="4.645371"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.258894" lon="4.64545"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.259192" lon="4.645877"><ele>-4</ele></trkpt>
+   <trkpt lat="52.259403" lon="4.646177"><ele>-4.5</ele></trkpt>
+   <trkpt lat="52.259618" lon="4.646484"><ele>-5</ele></trkpt>
+   <trkpt lat="52.259909" lon="4.646901"><ele>-5</ele></trkpt>
+   <trkpt lat="52.263115" lon="4.651486"><ele>-4.75</ele></trkpt>
+   <trkpt lat="52.264907" lon="4.65405"><ele>-4.75</ele></trkpt>
+   <trkpt lat="52.266965" lon="4.656997"><ele>-6.5</ele></trkpt>
+   <trkpt lat="52.270412" lon="4.661929"><ele>-6</ele></trkpt>
+   <trkpt lat="52.272348" lon="4.664698"><ele>-5</ele></trkpt>
+   <trkpt lat="52.273849" lon="4.666849"><ele>-6.5</ele></trkpt>
+   <trkpt lat="52.279023" lon="4.67426"><ele>-4</ele></trkpt>
+   <trkpt lat="52.279137" lon="4.674423"><ele>-4</ele></trkpt>
+   <trkpt lat="52.279309" lon="4.67467"><ele>-4</ele></trkpt>
+   <trkpt lat="52.279667" lon="4.675182"><ele>-4</ele></trkpt>
+   <trkpt lat="52.279696" lon="4.675224"><ele>-4.25</ele></trkpt>
+   <trkpt lat="52.279749" lon="4.675299"><ele>-4.25</ele></trkpt>
+   <trkpt lat="52.279934" lon="4.675563"><ele>-4.75</ele></trkpt>
+   <trkpt lat="52.280071" lon="4.67576"><ele>-5</ele></trkpt>
+   <trkpt lat="52.280236" lon="4.675995"><ele>-4.75</ele></trkpt>
+   <trkpt lat="52.281339" lon="4.677577"><ele>-2.75</ele></trkpt>
+   <trkpt lat="52.282735" lon="4.679577"><ele>-4.5</ele></trkpt>
+   <trkpt lat="52.283215" lon="4.680267"><ele>-4.75</ele></trkpt>
+   <trkpt lat="52.283874" lon="4.68125"><ele>-5.25</ele></trkpt>
+   <trkpt lat="52.284293" lon="4.681899"><ele>-4.75</ele></trkpt>
+   <trkpt lat="52.28452" lon="4.68226"><ele>-4.5</ele></trkpt>
+   <trkpt lat="52.285167" lon="4.683338"><ele>-3</ele></trkpt>
+   <trkpt lat="52.285828" lon="4.684529"><ele>-2.5</ele></trkpt>
+   <trkpt lat="52.285967" lon="4.684786"><ele>-2.5</ele></trkpt>
+   <trkpt lat="52.287065" lon="4.686827"><ele>-2.75</ele></trkpt>
+   <trkpt lat="52.287377" lon="4.687407"><ele>-2.75</ele></trkpt>
+   <trkpt lat="52.287817" lon="4.688231"><ele>-3</ele></trkpt>
+   <trkpt lat="52.288189" lon="4.688958"><ele>-3</ele></trkpt>
+   <trkpt lat="52.288332" lon="4.689246"><ele>-3</ele></trkpt>
+   <trkpt lat="52.288839" lon="4.690294"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.29034" lon="4.693586"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.290595" lon="4.69415"><ele>-3.75</ele></trkpt>
+   <trkpt lat="52.290904" lon="4.694801"><ele>-3</ele></trkpt>
+   <trkpt lat="52.29121" lon="4.695474"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.291511" lon="4.696174"><ele>-3.25</ele></trkpt>
+   <trkpt lat="52.291828" lon="4.696958"><ele>-3</ele></trkpt>
+   <trkpt lat="52.292078" lon="4.697533"><ele>-2.25</ele></trkpt>
+   <trkpt lat="52.292278" lon="4.697965"><ele>-1</ele></trkpt>
+   <trkpt lat="52.292449" lon="4.698359"><ele>-0.75</ele></trkpt>
+   <trkpt lat="52.292527" lon="4.698542"><ele>-0.5</ele></trkpt>
+   <trkpt lat="52.292629" lon="4.698787"><ele>-0.5</ele></trkpt>
+   <trkpt lat="52.29268" lon="4.698911"><ele>-0.5</ele></trkpt>
+   <trkpt lat="52.292682" lon="4.698918"><ele>-0.5</ele></trkpt>
+   <trkpt lat="52.292705" lon="4.698973"><ele>-0.75</ele></trkpt>
+   <trkpt lat="52.292732" lon="4.699042"><ele>-1.5</ele></trkpt>
+  </trkseg>
+ </trk>
+</gpx>

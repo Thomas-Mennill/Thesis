@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- track-length = 2273 filtered ascend = 0 plain-ascend = -1 cost=2273 energy=0.0kwh time=3m 2s -->
+<gpx 
+ xmlns="http://www.topografix.com/GPX/1/1" 
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" 
+ version="1.1" 
+ creator="BRouter-Web 0.18.1">
+ <trk>
+  <name>LaanVanNOI_Mariahoeve</name>
+  <trkseg>
+   <trkpt lat="52.078927" lon="4.343344"><ele>5.25</ele></trkpt>
+   <trkpt lat="52.079008" lon="4.343517"><ele>5.5</ele></trkpt>
+   <trkpt lat="52.079375" lon="4.344284"><ele>5</ele></trkpt>
+   <trkpt lat="52.079453" lon="4.344454"><ele>4.75</ele></trkpt>
+   <trkpt lat="52.07946" lon="4.344468"><ele>4.5</ele></trkpt>
+   <trkpt lat="52.079488" lon="4.344529"><ele>4.5</ele></trkpt>
+   <trkpt lat="52.079731" lon="4.345074"><ele>4</ele></trkpt>
+   <trkpt lat="52.079752" lon="4.345122"><ele>4</ele></trkpt>
+   <trkpt lat="52.079785" lon="4.345196"><ele>4</ele></trkpt>
+   <trkpt lat="52.082227" lon="4.350672"><ele>1.25</ele></trkpt>
+   <trkpt lat="52.082656" lon="4.351632"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.083555" lon="4.353639"><ele>0.5</ele></trkpt>
+   <trkpt lat="52.084514" lon="4.35579"><ele>0</ele></trkpt>
+   <trkpt lat="52.084582" lon="4.355942"><ele>0</ele></trkpt>
+   <trkpt lat="52.084761" lon="4.356342"><ele>0</ele></trkpt>
+   <trkpt lat="52.087" lon="4.361334"><ele>0.25</ele></trkpt>
+   <trkpt lat="52.087608" lon="4.362666"><ele>0.75</ele></trkpt>
+   <trkpt lat="52.088417" lon="4.364331"><ele>0</ele></trkpt>
+   <trkpt lat="52.088874" lon="4.365304"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.08889" lon="4.365337"><ele>2.25</ele></trkpt>
+   <trkpt lat="52.08893" lon="4.365424"><ele>2.5</ele></trkpt>
+   <trkpt lat="52.089376" lon="4.366392"><ele>3</ele></trkpt>
+   <trkpt lat="52.089473" lon="4.366603"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.089836" lon="4.36739"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.090129" lon="4.368026"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.090145" lon="4.368062"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.090169" lon="4.368114"><ele>1.5</ele></trkpt>
+   <trkpt lat="52.090652" lon="4.369177"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.090702" lon="4.369285"><ele>2.75</ele></trkpt>
+   <trkpt lat="52.090846" lon="4.369605"><ele>3.5</ele></trkpt>
+   <trkpt lat="52.091013" lon="4.369979"><ele>3.75</ele></trkpt>
+   <trkpt lat="52.091047" lon="4.370055"><ele>3.25</ele></trkpt>
+  </trkseg>
+ </trk>
+</gpx>
