@@ -1,9 +1,11 @@
-"""Reassemble the GeoJSON graph fragments in Network_For_Case_Study.
+"""Reassemble selected GeoJSON graph fragments for the case study.
 
 Each fragment contains Point features with ``feature_type=node`` and
 LineString features with ``feature_type=track``.  Repeated station and
 station-to-station files are deduplicated by geometry.  Parallel tracks are
-retained in a NetworkX MultiGraph.
+retained in a NetworkX MultiGraph.  By default, the selected fragments are
+listed in ``case_study_section_names.txt`` and located in
+``between_station_sections`` and ``station_nodes``.
 """
 
 from __future__ import annotations
@@ -12,8 +14,10 @@ import argparse
 import itertools
 import json
 import math
+import os
 import pickle
 import re
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -23,6 +27,9 @@ from shapely.geometry import LineString, Point
 
 
 DEFAULT_INPUT_FOLDER = "Network_For_Case_Study"
+DEFAULT_SECTION_NAMES_FILE = "case_study_section_names.txt"
+DEFAULT_BETWEEN_STATION_FOLDER = "between_station_sections"
+DEFAULT_STATION_NODES_FOLDER = "station_nodes"
 DEFAULT_OUTPUT_GRAPH = "case_study_network.gpickle"
 DEFAULT_OUTPUT_GEOJSON = "case_study_network.geojson"
 DEFAULT_OUTPUT_MAP = "case_study_network_map.html"
@@ -39,6 +46,45 @@ DEFAULT_ROOT_STATIONS = (
     "Amsterdam Zuid"
 )
 COORDINATE_DIGITS = 7
+REMOVED_ATTRIBUTES = frozenset({
+    "wikidata", "wifi:operator", "wheelchair", "wheelchair:description",
+    "air_conditioning", "wikimedia_commons", "wikipedia", "addr:city",
+    "addr:country", "addr:housenumber", "addr:postcode", "addr:street",
+    "brand", "bridge:wikipedia", "bridge:structure", "bridge:material",
+    "bridge:movable", "bridge:name", "bridge:start_date", "building",
+    "building:material", "check_date:wheelchair", "check_date",
+    "access:conditional", "alt_name", "alt_name:-1999-05-30", "attraction",
+    "comment", "construction", "covered", "construction:railway:etcs",
+    "cutting", "cutting:name", "departures_board", "description",
+    "description:ProRail", "description:nl", "designation", "detail",
+    "disused:railway", "drinking_water",
+    "drinking_water:refill:self_service", "ele", "embankment",
+    "embankment:name", "entrance", "fixme", "gauge", "height", "iata",
+    "image", "internet_access", "internet_access:fee",
+    "internet_access:operator", "internet_access:ssid", "layer", "level",
+    "loc_name", "local_name", "material", "name:ar", "name:ckb", "name:de",
+    "name:el", "name:es", "name:etymology:wikidata", "name:fa", "name:fr",
+    "name:fy", "name:ja", "name:ko", "name:nl", "name:pnb", "name:ru",
+    "name:ur", "name:zh", "name:zh-Hant", "network", "network:short",
+    "network:subway", "network:train", "network:wikidata",
+    "network:wikipedia", "not:building", "not:network:wikidata", "note:nl",
+    "note:start_date", "note", "note:NL", "opening_date", "opening_hours",
+    "operator", "operator:short", "operator:subway", "operator:train",
+    "operator:website", "operator:wikidata", "outdoor_seating", "old_name",
+    "old_name:-1997", "old_name:-1999-05-30", "old_name:-2000-05-29",
+    "old_name:-2015-11-19", "old_name:-2019-12-15", "old_name:1863-2015",
+    "old_name:1866-1989", "old_name:1866-2015", "old_name:1867-2016",
+    "old_name:1868-1999", "old_name:1881-1921", "old_name:1885-2015",
+    "old_name:1921-1955", "old_name:1969-2010", "old_name:1971-2015",
+    "old_name:1985-2006", "proposed:bridge", "proposed:electrified",
+    "proposed:frequency", "proposed:voltage", "ruins", "source",
+    "source:ProRail", "source:date", "source:height", "source:height:date",
+    "source:maxspeed", "source:name", "spotpass", "start_date", "subway",
+    "supervised", "toilets", "toilets:wheelchair", "tunnel", "tunnel:name",
+    "tunnel:wikipedia", "usage", "voltage", "website", "workrules", "ref",
+    "ref:DB_Netz_AG", "ref:FR:sncf:resarail", "ref:FR:uic8", "ref:ProRail",
+    "ref:ProRailID", "ref:ProRailSpoortak", "ref:bag", "ref:crs",
+})
 
 
 def coordinate_key(coordinates):
@@ -105,10 +151,10 @@ def _line_local_tangent(line, point):
     return tangent
 
 
-def read_fragments(input_folder):
-    """Yield ``(source_name, feature)`` pairs from all GeoJSON files."""
+def read_fragments(input_folder, input_files=None):
+    """Yield ``(source_name, feature)`` pairs from selected GeoJSON files."""
     folder = Path(input_folder)
-    files = sorted(folder.glob("*.geojson"))
+    files = sorted(input_files or folder.glob("*.geojson"))
     if not files:
         raise FileNotFoundError(f"No GeoJSON files found in {folder}")
 
@@ -119,12 +165,83 @@ def read_fragments(input_folder):
             yield path.name, feature
 
 
-def reassemble_network(input_folder=DEFAULT_INPUT_FOLDER):
-    """Build a deduplicated MultiGraph from all case-study fragments."""
+def find_case_study_section_files(
+    section_names_file=DEFAULT_SECTION_NAMES_FILE,
+    between_station_folder=DEFAULT_BETWEEN_STATION_FOLDER,
+    station_nodes_folder=DEFAULT_STATION_NODES_FOLDER,
+):
+    """Find the listed section files in the station and inter-station folders."""
+    names_path = Path(section_names_file)
+    if not names_path.is_file():
+        raise FileNotFoundError(f"Section names file not found: {names_path}")
+
+    requested_names = []
+    for line in names_path.read_text(encoding="utf-8").splitlines():
+        name = line.strip().strip('"').strip("'")
+        if not name:
+            continue
+        requested_names.append(Path(name.replace("\\", "/")).name)
+    requested_names = list(dict.fromkeys(requested_names))
+    if not requested_names:
+        raise ValueError(f"No section names found in {names_path}")
+
+    candidates = {}
+    for folder_name in (between_station_folder, station_nodes_folder):
+        folder = Path(folder_name)
+        if not folder.is_dir():
+            raise FileNotFoundError(f"Section folder not found: {folder}")
+        for path in folder.rglob("*.geojson"):
+            candidates.setdefault(path.name, []).append(path)
+
+    missing = [
+        name for name in requested_names
+        if name not in candidates
+    ]
+    if missing:
+        raise FileNotFoundError(
+            "The following listed sections were not found in "
+            f"{between_station_folder} or {station_nodes_folder}: "
+            + ", ".join(missing)
+        )
+
+    selected_files = []
+    for name in requested_names:
+        matches = candidates[name]
+        selected_files.append(matches[0])
+        if len(matches) > 1:
+            print(
+                f"[Reassemble] Using {matches[0]} for {name}; "
+                f"also found {len(matches) - 1} duplicate location(s)."
+            )
+    print(
+        f"[Reassemble] Selected {len(selected_files):,} section files from "
+        f"{names_path}."
+    )
+    return selected_files
+
+
+def reassemble_network(
+    input_folder=DEFAULT_INPUT_FOLDER,
+    section_names_file=None,
+    between_station_folder=DEFAULT_BETWEEN_STATION_FOLDER,
+    station_nodes_folder=DEFAULT_STATION_NODES_FOLDER,
+):
+    """Build a deduplicated MultiGraph from selected case-study fragments."""
     input_path = Path(input_folder)
-    input_files = sorted(input_path.glob("*.geojson"))
+    input_files = (
+        find_case_study_section_files(
+            section_names_file,
+            between_station_folder,
+            station_nodes_folder,
+        )
+        if section_names_file
+        else sorted(input_path.glob("*.geojson"))
+    )
     if not input_files:
-        raise FileNotFoundError(f"No GeoJSON files found in {input_path}")
+        source_description = (
+            f"{section_names_file}" if section_names_file else str(input_path)
+        )
+        raise FileNotFoundError(f"No GeoJSON files found for {source_description}")
     print(
         f"[Reassemble] Reading {len(input_files):,} GeoJSON fragments "
         f"from {input_path}..."
@@ -138,7 +255,7 @@ def reassemble_network(input_folder=DEFAULT_INPUT_FOLDER):
 
     processed_sources = 0
     current_source = None
-    for source_name, feature in read_fragments(input_folder):
+    for source_name, feature in read_fragments(input_folder, input_files):
         if source_name != current_source:
             current_source = source_name
             processed_sources += 1
@@ -146,7 +263,10 @@ def reassemble_network(input_folder=DEFAULT_INPUT_FOLDER):
                 f"[Reassemble] Fragment {processed_sources:,}/"
                 f"{len(input_files):,}: {source_name}"
             )
-        properties = dict(feature.get("properties") or {})
+        properties = {
+            key: value for key, value in (feature.get("properties") or {}).items()
+            if key not in REMOVED_ATTRIBUTES
+        }
         geometry = feature.get("geometry") or {}
         feature_type = properties.get("feature_type")
         coordinates = geometry.get("coordinates")
@@ -193,6 +313,7 @@ def reassemble_network(input_folder=DEFAULT_INPUT_FOLDER):
             **feature["properties"],
         )
 
+    remove_attributes(graph)
     print(
         f"[Reassemble] Complete: {graph.number_of_nodes():,} nodes, "
         f"{graph.number_of_edges():,} unique tracks."
@@ -210,6 +331,44 @@ def reassemble_network(input_folder=DEFAULT_INPUT_FOLDER):
     )
     assign_network_ids(graph)
     return graph
+
+
+def remove_attributes(graph):
+    """Remove source attributes that are not part of the reassembled network."""
+    removed_count = 0
+    for _, attributes in graph.nodes(data=True):
+        for attribute in list(attributes):
+            source_attribute = (
+                attribute.removeprefix("source_")
+                if isinstance(attribute, str)
+                else attribute
+            )
+            if (
+                attribute not in REMOVED_ATTRIBUTES
+                and source_attribute not in REMOVED_ATTRIBUTES
+                and attribute != "source_attributes"
+            ):
+                continue
+            if attribute in attributes:
+                attributes.pop(attribute)
+                removed_count += 1
+    for _, _, attributes in graph.edges(data=True):
+        for attribute in list(attributes):
+            source_attribute = (
+                attribute.removeprefix("source_")
+                if isinstance(attribute, str)
+                else attribute
+            )
+            if (
+                attribute not in REMOVED_ATTRIBUTES
+                and source_attribute not in REMOVED_ATTRIBUTES
+                and attribute != "source_attributes"
+            ):
+                continue
+            if attribute in attributes:
+                attributes.pop(attribute)
+                removed_count += 1
+    return removed_count
 
 
 def angle_between(center, first, second):
@@ -486,11 +645,33 @@ def assign_network_ids(graph):
 
 
 def write_graph(graph, output_graph):
+    remove_attributes(graph)
     with Path(output_graph).open("wb") as handle:
         pickle.dump(graph, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
+def _write_json(collection, output_path):
+    """Write JSON through a temporary file before replacing the destination."""
+    destination = Path(output_path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        file_descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.stem}.",
+            suffix=destination.suffix,
+            dir=destination.parent,
+        )
+        temporary_path = Path(temporary_name)
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as handle:
+            json.dump(collection, handle)
+        os.replace(temporary_path, destination)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
 def write_geojson(graph, output_geojson):
+    remove_attributes(graph)
     features = []
     for node, attributes in graph.nodes(data=True):
         properties = {
@@ -528,9 +709,7 @@ def write_geojson(graph, output_geojson):
         },
         "features": features,
     }
-    Path(output_geojson).write_text(
-        json.dumps(collection), encoding="utf-8"
-    )
+    _write_json(collection, output_geojson)
 
 
 def write_parallel_track_centrelines(
@@ -759,9 +938,7 @@ def write_parallel_track_centrelines(
     )
 
     collection = _segment_collection("parallel_track_centrelines", features)
-    Path(output_geojson).write_text(
-        json.dumps(collection), encoding="utf-8"
-    )
+    _write_json(collection, output_geojson)
     return features
 
 
@@ -804,10 +981,11 @@ def write_network_map(
     output_html=DEFAULT_OUTPUT_MAP,
     centerline_features=None,
 ):
-    """Write an interactive Netherlands map with hoverable network details."""
+    """Write a map showing only IDs and speed-limit attributes."""
     if not graph:
         raise ValueError("Cannot create a map for an empty graph")
 
+    remove_attributes(graph)
     incident_edge_ids = {node: [] for node in graph.nodes}
     edge_records = []
     for start, end, key, attributes in graph.edges(
@@ -821,9 +999,10 @@ def write_network_map(
     node_features = []
     for node, attributes in graph.nodes(data=True):
         properties = {
-            key: _map_property_value(value)
-            for key, value in attributes.items()
-            if key != "geometry"
+            "node_id": _map_property_value(attributes.get("node_id")),
+            "segment_ids": _map_property_value(
+                attributes.get("segment_ids", [])
+            ),
         }
         properties["connected_edge_ids"] = _map_property_value(
             sorted(
@@ -843,9 +1022,8 @@ def write_network_map(
     edge_features = []
     for start, end, _key, attributes in edge_records:
         properties = {
-            key: _map_property_value(value)
-            for key, value in attributes.items()
-            if key != "geometry"
+            "edge_id": _map_property_value(attributes.get("edge_id")),
+            "segment_id": _map_property_value(attributes.get("segment_id")),
         }
         properties.update({
             "feature_type": "track",
@@ -856,6 +1034,11 @@ def write_network_map(
                 graph.nodes[end].get("node_id")
             ),
         })
+        for speed_key in ("maxspeed", "speed_limit", "speed_limits"):
+            if speed_key in attributes:
+                properties[speed_key] = _map_property_value(
+                    attributes[speed_key]
+                )
         segment_id = attributes.get("segment_id")
         if segment_id is not None:
             properties["segment_color"] = color_palette[
@@ -871,14 +1054,15 @@ def write_network_map(
         })
 
     def add_tooltip_layer(
-        parent, features, name, color, weight, property_color=False
+        parent, features, name, color, weight, display_fields,
+        property_color=False
     ):
         if not features:
             return
-        fields = sorted({
-            field for feature in features
-            for field in feature["properties"]
-        })
+        fields = [
+            field for field in display_fields
+            if any(field in feature["properties"] for feature in features)
+        ]
         for feature in features:
             for field in fields:
                 feature["properties"].setdefault(field, "")
@@ -925,9 +1109,25 @@ def write_network_map(
         control_scale=True,
     )
     add_tooltip_layer(
-        network_map, edge_features, "Tracks", "#1565c0", 3, property_color=True
+        network_map,
+        edge_features,
+        "Tracks",
+        "#1565c0",
+        3,
+        [
+            "edge_id", "segment_id", "start_node_id", "end_node_id",
+            "maxspeed", "speed_limit", "speed_limits",
+        ],
+        property_color=True,
     )
-    add_tooltip_layer(network_map, node_features, "Nodes", "#d32f2f", 1)
+    add_tooltip_layer(
+        network_map,
+        node_features,
+        "Nodes",
+        "#d32f2f",
+        1,
+        ["node_id", "segment_ids", "connected_edge_ids"],
+    )
     if centerline_features:
         folium.GeoJson(
             {"type": "FeatureCollection", "features": centerline_features},
@@ -937,11 +1137,6 @@ def write_network_map(
                 "weight": 5,
                 "opacity": 0.9,
             },
-            tooltip=folium.GeoJsonTooltip(
-                fields=["group_id", "track_count"],
-                aliases=["Centreline group", "Tracks represented"],
-                labels=True,
-            ),
         ).add_to(network_map)
     bounds = [
         [min(coordinate[1] for coordinate in coordinates),
@@ -1142,6 +1337,7 @@ def split_into_segments(graph, segment_geojson=DEFAULT_SEGMENT_GEOJSON,
                         segment_graph_output=DEFAULT_SEGMENT_GRAPH,
                         segment_output_folder=DEFAULT_SEGMENT_OUTPUT_FOLDER):
     """Export maximal edge-disjoint segments and their boundary graph."""
+    remove_attributes(graph)
     print(
         f"[Segments] Splitting {graph.number_of_nodes():,} nodes and "
         f"{graph.number_of_edges():,} tracks..."
@@ -1358,6 +1554,21 @@ def split_into_segments(graph, segment_geojson=DEFAULT_SEGMENT_GEOJSON,
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-folder", default=DEFAULT_INPUT_FOLDER)
+    parser.add_argument(
+        "--section-names-file",
+        default=DEFAULT_SECTION_NAMES_FILE,
+        help="Text file listing the section GeoJSON files to reassemble.",
+    )
+    parser.add_argument(
+        "--between-station-folder",
+        default=DEFAULT_BETWEEN_STATION_FOLDER,
+        help="Folder containing station-to-station section GeoJSON files.",
+    )
+    parser.add_argument(
+        "--station-nodes-folder",
+        default=DEFAULT_STATION_NODES_FOLDER,
+        help="Folder containing station-node GeoJSON files.",
+    )
     parser.add_argument("--output-graph", default=DEFAULT_OUTPUT_GRAPH)
     parser.add_argument("--output-geojson", default=DEFAULT_OUTPUT_GEOJSON)
     parser.add_argument(
@@ -1397,7 +1608,12 @@ def main():
     parser.add_argument("--stations", nargs="+", default=list(DEFAULT_ROOT_STATIONS))
     args = parser.parse_args()
 
-    graph = reassemble_network(args.input_folder)
+    graph = reassemble_network(
+        input_folder=args.input_folder,
+        section_names_file=args.section_names_file,
+        between_station_folder=args.between_station_folder,
+        station_nodes_folder=args.station_nodes_folder,
+    )
     graph = prune_network_to_stations(graph, args.stations)
     # Direction calculation is temporarily suspended. Keep the implementation
     # above available so it can be re-enabled without restoring code.
