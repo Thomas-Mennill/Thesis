@@ -42,7 +42,7 @@ const map = new maplibregl.Map({
 
 map.on("load", () => {
 
-    fetch("case_study_network.geojson")
+    fetch("station_nodes/node_11240917839.geojson")
         .then((response) => response.json())
         .then((network) => {
             map.addSource("railways", {

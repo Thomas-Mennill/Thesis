@@ -58,6 +58,63 @@ def load_train_schedule(csv_file):
 		columns=["train_id", "event", "station", "time"],
 	)
 
+def load_train_data(csv_file="train_data.csv"):
+	"""Load rolling-stock data into the global ``U`` DataFrame.
+
+	The CSV stores rolling-stock types in columns and their properties in
+	rows, so the first column is used as the DataFrame index.
+	"""
+	global U
+
+	U = pd.read_csv(csv_file, index_col=0, encoding="utf-8-sig")
+	return U
+
+
+def calculate_braking_times(train_type, train_data=None):
+	"""Return full-stop braking times sampled at 0.1 m/s.
+
+	The returned value at index ``i`` is the time in seconds required to stop
+	from ``i * 0.1`` m/s. Maximum speed is read in km/h and converted
+	to m/s. The braking acceleration from ``train_data`` is assumed to be a
+	positive constant deceleration.
+	"""
+	if train_data is None:
+		train_data = U
+	if not isinstance(train_data, pd.DataFrame):
+		raise TypeError("train_data must be a pandas DataFrame")
+	if train_type not in train_data.columns:
+		raise KeyError(f"Train type {train_type!r} is not present in train data")
+
+	required_properties = {"Max Speed (km/h)", "Brake Acceleration (m/s^2)"}
+	missing_properties = required_properties.difference(train_data.index)
+	if missing_properties:
+		raise KeyError(
+			"Train data is missing required properties: "
+			+ ", ".join(sorted(missing_properties))
+		)
+
+	try:
+		max_speed_kmh = float(train_data.at["Max Speed (km/h)", train_type])
+		brake_acceleration = float(
+			train_data.at["Brake Acceleration (m/s^2)", train_type]
+		)
+	except (TypeError, ValueError) as error:
+		raise ValueError(
+			f"Train type {train_type!r} has invalid speed or braking data"
+		) from error
+	if not np.isfinite(max_speed_kmh) or max_speed_kmh < 0:
+		raise ValueError("Maximum speed must be finite and non-negative")
+	if not np.isfinite(brake_acceleration) or brake_acceleration <= 0:
+		raise ValueError("Brake acceleration must be finite and positive")
+
+	max_speed = max_speed_kmh / 3.6
+	speeds = np.arange(
+		0,
+		np.ceil(max_speed / 0.1) * 0.1 + 0.05,
+		0.1,
+	)
+	return speeds / brake_acceleration
+
 
 def assign_train_events(schedule):
 	"""Assign schedule rows to the departure and arrival event sets.
@@ -113,7 +170,6 @@ def assign_train_events(schedule):
 	V_departure = departure_events
 	V_arrival = arrival_events
 	return V_departure, V_arrival
-
 
 def assign_event_edges(schedule):
 	"""Create dwell, travel, and headway edge sets from a train schedule.
@@ -179,7 +235,6 @@ def assign_event_edges(schedule):
 	E_headway_restricted = restricted_headway_edges
 	return E_dwell, E_travel, E_headway, E_headway_restricted
 
-
 def load_track_segments(pickle_file):
 	"""Load track-segment attributes and connectivity from a pickled DiGraph.
 
@@ -226,42 +281,248 @@ def load_track_segments(pickle_file):
 
 	return track_segments, L
 
+class event:
+	def __init__(self, event_id, is_initial, service_id_internal, 
+	             service_id_external, location_id, event_type, train_type, train_model):
+		self.event_id = event_id
+		self.service_id_internal = service_id_internal
+		self.service_id_external = service_id_external
+		self.location_id = location_id
+		self.event_type = event_type
+		self.is_initial = is_initial
+		self.train_type = train_type #maglev or rail
+		self.train_model = train_model
 
-rail_rail_switching_time = 2 #seconds
-rail_maglev_switching_time = 20 #seconds
-maglev_maglev_switching_time = 10 #seconds
-maglev_rail_switching_time = 20 #seconds
-V_initial = [] #set of initial events
-V_additional = [] #set of additional events
-V_departure = [] #set of departure events
-V_arrival = [] #set of arrival events
-E_dwell = [] #set of dwell edges
-E_travel = [] #set of travel edges
-E_headway = [] #set of headway edges
-E_headway_restricted = [] #set of headway edges with timing restriction
-T = [] #set of existing train services
-T_additional = [] #set of additional train services
-trip_max = [] #max duration of trip i, j
-trip_min = [] #min duration of trip i, j
-dwell_max = [] #max duration of dwell i, j
-dwell_min = [] #min duration of dwell i, j
-S = [] #set of stations
-H = [] #set of minimum headways between events i, j ASYMMETRICAL
-pi = [] #time at which event i takes place in the initial schedule
-decc = [] #set of deceleration times
-L = [] #=1 if travel from track segment i to track segment j is possible, =0 otherwise
-P = [] #=1 if train i has priority over train j, =0 otherwise
-tw_min = [] #set of beginning time windows for event i
-tw_max = [] #set of ending time windows for event i
-track_segments = {} #set of track segments
-track_data = [] #data for track segment i
-sw=[] #set of switches 
+def populate_events(event_definitions):
+	"""Create events and split their IDs into initial and additional events.
+
+	``event_definitions`` must contain dictionaries with the fields accepted by
+	the :class:`event` constructor: ``event_id``, ``is_initial``,
+	``service_id_internal``, ``service_id_external``, ``location_id``, and
+	``event_type``.
+	"""
+	global Events, V_initial, V_additional, N_initial, N_additional
+
+	Events = [
+		event(
+			event_id=definition["event_id"],
+			is_initial=definition["is_initial"],
+			service_id_internal=definition["service_id_internal"],
+			service_id_external=definition["service_id_external"],
+			location_id=definition["location_id"],
+			event_type=definition["event_type"],
+		)
+		for definition in event_definitions
+	]
+	V_initial = [current_event.event_id for current_event in Events if current_event.is_initial]
+	V_additional = [
+		current_event.event_id
+		for current_event in Events
+		if not current_event.is_initial
+	]
+	N_initial = len(V_initial)
+	N_additional = len(V_additional)
+
+	return Events, V_initial, V_additional
+
+def populate_priority_matrix(train_services=None, priority_matrix=None):
+	"""Set priority for every ordered pair of train services.
+
+	For train services ``i`` and ``j``, ``p[i, j]`` is one when the priority
+	of the service whose ``internal_id`` is ``i`` is greater than the priority
+	of the service whose ``internal_id`` is ``j``. All other entries are reset
+	to zero before the comparison.
+	"""
+	if train_services is None:
+		train_services = T
+	if priority_matrix is None:
+		priority_matrix = p
+
+	priority_matrix.fill(0)
+	for train_i in train_services:
+		internal_id_i = train_i["internal_id"]
+		priority_i = train_i["priority"]
+		for train_j in train_services:
+			internal_id_j = train_j["internal_id"]
+			priority_matrix[internal_id_i, internal_id_j] = int(
+				priority_i > train_j["priority"]
+			)
+
+	return priority_matrix
+
+def populate_event_locations(events=None, location_array=None):
+	"""Set the location of each event at the index of its event ID."""
+	global s
+
+	if events is None:
+		events = Events
+	if location_array is None:
+		required_size = max(
+			(event_item.event_id for event_item in events),
+			default=-1,
+		) + 1
+		if required_size > len(s):
+			s = np.zeros(required_size)
+		location_array = s
+
+	location_array.fill(0)
+	for event_item in events:
+		event_id = event_item.event_id
+		if not isinstance(event_id, (int, np.integer)) or event_id < 0:
+			raise ValueError(
+				f"Event ID {event_id!r} must be a non-negative integer"
+			)
+		if event_id >= len(location_array):
+			raise IndexError(
+				f"Event ID {event_id} is outside the location array"
+			)
+		location_array[event_id] = event_item.location_id
+
+	return location_array
+
+def populate_event_services(events=None, service_array=None):
+	"""Set the internal train service of each event at its event ID index."""
+	global t
+
+	if events is None:
+		events = Events
+	if service_array is None:
+		required_size = max(
+			(event_item.event_id for event_item in events),
+			default=-1,
+		) + 1
+		if required_size > len(t):
+			t = np.zeros(required_size)
+		service_array = t
+
+	service_array.fill(0)
+	for event_item in events:
+		event_id = event_item.event_id
+		if not isinstance(event_id, (int, np.integer)) or event_id < 0:
+			raise ValueError(
+				f"Event ID {event_id!r} must be a non-negative integer"
+			)
+		if event_id >= len(service_array):
+			raise IndexError(
+				f"Event ID {event_id} is outside the service array"
+			)
+		service_array[event_id] = event_item.service_id_internal
+
+	return service_array
+
+def populate_q(location_array=None, same_location_matrix=None):
+	"""Set q[i, j] to one when events i and j have the same location."""
+	global q
+
+	if location_array is None:
+		location_array = s
+	location_array = np.asarray(location_array)
+	if location_array.ndim != 1:
+		raise ValueError("The location array must be one-dimensional")
+
+	required_shape = (len(location_array), len(location_array))
+	if same_location_matrix is None:
+		if q.shape != required_shape:
+			q = np.zeros(required_shape)
+		same_location_matrix = q
+	elif same_location_matrix.shape != required_shape:
+		raise ValueError(
+			f"The q matrix must have shape {required_shape}, "
+			f"not {same_location_matrix.shape}"
+		)
+
+	same_location_matrix[:] = (
+		location_array[:, np.newaxis] == location_array[np.newaxis, :]
+	)
+	return same_location_matrix
+
+def populate_l(service_array=None, same_service_matrix=None):
+	"""Set l[i, j] to one when events i and j use the same train service."""
+	global l
+
+	if service_array is None:
+		service_array = t
+	service_array = np.asarray(service_array)
+	if service_array.ndim != 1:
+		raise ValueError("The service array must be one-dimensional")
+
+	required_shape = (len(service_array), len(service_array))
+	if same_service_matrix is None:
+		if l.shape != required_shape:
+			l = np.zeros(required_shape)
+		same_service_matrix = l
+	elif same_service_matrix.shape != required_shape:
+		raise ValueError(
+			f"The l matrix must have shape {required_shape}, "
+			f"not {same_service_matrix.shape}"
+		)
+
+	same_service_matrix[:] = (
+		service_array[:, np.newaxis] == service_array[np.newaxis, :]
+	)
+	return same_service_matrix
+
+
+switching_time = {
+	"rail_rail": 2,
+	"rail_maglev": 20,
+	"maglev_maglev": 10,
+	"maglev_rail": 20
+}
+sight_time = 2 #seconds
 train_number_dict = {} #dictionary of real-world train IDs and their corresponding train IDs in the code
 station_name_dict = {} #dictionary of real-world full station names and their UIC Codes
-rho = [] #1 if train t stops at station j, 0 otherwise
-trains = [] #set of train types
+
+
+
 M=1e6 #big M for constraints
-r = [] #1 if travel from track segment i to track segment j is possible, 0 otherwise
+Events = [] #set of events, list of event classes
+V_initial = [] #set of initial events
+V_additional = [] #set of additional events
+N_initial = len(V_initial) #number of initial events
+N_additional = len(V_additional) #number of additional events
+
+
+#Chopping Block
+V_departure = [] #set of departure events
+V_arrival = [] #set of arrival events
+V_split = [] #set of split events
+V_merge = [] #set of merge events
+V_crossing = [] #set of crossing events
+V_rt = [] #set of station run through events
+S = [] #set of locations
+###End chopping block
+
+T = [] #set of train services, list of dictionaries
+running_time_max = np.full((N_initial+N_additional,N_initial+N_additional, len(T)), M) #max duration of train service t between events i and j
+running_time_min = np.full((N_initial+N_additional,N_initial+N_additional, len(T)), -M) #min duration of train service t between events i and j
+dwell_time_max = np.full((N_initial+N_additional, N_initial+N_additional, len(T)), M) #max duration of train service t's dwell between events i and j
+dwell_time_min = np.full((N_initial+N_additional, N_initial+N_additional, len(T)), -M) #min duration of train service t's dwell between events i and j
+s = np.zeros(N_initial+N_additional) #s[i] = location of event i
+t = np.zeros(N_initial+N_additional) #t[i] = train service of event i
+headway_time_min = np.full((N_initial+N_additional, N_initial+N_additional), -M) #set of minimum headways between events i, j ASYMMETRICAL
+pi = np.zeros(N_initial+N_additional) #time at which event i takes place in the initial schedule
+p = np.zeros((N_initial+N_additional, N_initial+N_additional)) #=1 if train i has priority over train j, =0 otherwise
+tw_min = np.zeros(N_additional) #set of beginning time windows for event i
+tw_max = np.zeros(N_additional) #set of ending time windows for event i
+rho = np.zeros((N_initial+N_additional, len(T))) #1 if train t stops at station i, 0 otherwise
+U = [] #set of rolling stock types, pandas df
+q = np.zeros((N_initial+N_additional, N_initial+N_additional)) #1 if events i and j are at the same location, 0 otherwise
+l = np.zeros((N_initial+N_additional, N_initial+N_additional)) #1 if events i and j are on the same train service, 0 otherwise
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -271,9 +532,8 @@ r = [] #1 if travel from track segment i to track segment j is possible, 0 other
 sequence_optimization_model = gp.Model("Thesis Model")
 
 x=sequence_optimization_model.addVars(I, vtype=GRB.CONTINUOUS, name='x', lb=0) #time at which event i takes place
-dt=sequence_optimization_model.addVars(I, vtype=GRB.CONTINUOUS, name='dt', lb=0) #travel time of train t
+delta_t=sequence_optimization_model.addVars(I, vtype=GRB.CONTINUOUS, name='dt', lb=0) #travel time of train t
 a=sequence_optimization_model.addVars(I, vtype=GRB.BINARY, name='a') #=1 if j is after or simultaneous with i, =0 otherwise
-b=sequence_optimization_model.addVars(I, vtype=GRB.BINARY, name='b') #=1 if event i happens on track segment k, =0 otherwise
 ad=sequence_optimization_model.addVars(I, vtype=GRB.CONTINUOUS, name='ad') #time adjustment of event i
 
 
@@ -281,22 +541,7 @@ ad=sequence_optimization_model.addVars(I, vtype=GRB.CONTINUOUS, name='ad') #time
 
 sequence_optimization_model.addconstrs((x[i] >= tw_min[i] for i in V_additional), name='min_time_window')
 sequence_optimization_model.addconstrs((x[i] <= tw_max[i] for i in V_additional), name='max_time_window')
-sequence_optimization_model.addconstrs((x[j] - x[i] >= trip_min[i,j] + rho[i]*acc[m] + rho[j]*decc[m] for i, j in E_travel for m in trains), name='travel_time_min')
+sequence_optimization_model.addconstrs((x[j] - x[i] >= running_time_min[i,j] + rho[i]*acc[m] + rho[j]*decc[m] for i, j in E_travel for m in trains), name='travel_time_min')
 sequence_optimization_model.addconstrs((x[j] - x[i] <= trip_max[i,j] + rho[i]*acc[m] + rho[j]*decc[m] for i, j in E_travel for m in trains), name='travel_time_max')
 sequence_optimization_model.addconstrs((x[j] - x[i] >= rho[i]*dwell_min[i,j] for i, j in E_dwell), name='dwell_time_min')
 sequence_optimization_model.addconstrs((x[j] - x[i] <= rho[i]*dwell_max[i,j] for i, j in E_dwell), name='dwell_time_max')
-#room for constraint 7 from paper
-
-#headways depend on train order, but they can be precalcuated to keep the program MILP
-sequence_optimization_model.addconstrs((x[j] - x[i] >= H[i,j] - (1-a[i,j])*M for i, j in E_headway), name='headway_min')
-sequence_optimization_model.addconstrs((x[j] - x[i] <= H[i,j]*(1-a[i,j]) - M*a[i,j] for i, j in E_headway), name='headway_max')
-sequence_optimization_model.addconstrs((a[i,j] == a[k,m] for i, k in E_headway for j, m in E_headway), name='headway_ordering')
-#sequence_optimization_model.addconstrs((b[i,j] + b[i,k] <= 1 for i in V_additional for j, k in sw), name='switching_constraint')
-sequence_optimization_model.addconstrs((a[i,j] - a[k,m] <= 0 for i, j in E_dwell for k, m in E_dwell), name='low_priority_overtaking')
-sequence_optimization_model.addconstrs((a[i,j] - a[k,m] > 0 for i, j in E_dwell for k, m in E_dwell), name='low_priority_overtaking_2')
-sequence_optimization_model.addconstrs((x[i] - pi[i] >= ad[i] for i in V_initial), name='initial_time_adjustment')
-sequence_optimization_model.addconstrs((pi[i] - x[i] >= ad[i] for i in V_initial), name='initial_time_adjustment_2')
-sequence_optimization_model.addconstrs((b[i,k])
-
-# sum(b[i,k]*b[j,k])*something in headway, so that the acceptable minimum headway range becomes unlimited if the two events are not on the same track segment
-# 

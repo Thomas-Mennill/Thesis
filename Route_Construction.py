@@ -10,6 +10,39 @@ import pickle
 import argparse
 from pathlib import Path
 
+import networkx as nx
+
+
+def load_route_station_stops(csv_file="rail_routes.csv"):
+    """Return station stops grouped by train ID from the timetable CSV."""
+    with Path(csv_file).open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows:
+        raise ValueError(f"Route file {csv_file!r} is empty")
+
+    station_stops = {}
+    for column in range(1, len(rows[0]), 4):
+        train_id = rows[0][column].strip()
+        if not train_id or train_id.lower() == "time":
+            continue
+        try:
+            train_number = int(train_id)
+        except ValueError as error:
+            raise ValueError(
+                f"Invalid train ID {train_id!r} in column {column + 1}"
+            ) from error
+        stops = []
+        for row in rows[1:]:
+            if column >= len(row):
+                continue
+            station = row[column].strip()
+            if station and (not stops or stops[-1] != station):
+                stops.append(station)
+        station_stops[train_number] = stops
+    if not station_stops:
+        raise ValueError(f"No train station stops found in {csv_file!r}")
+    return station_stops
+
 
 def _parse_integer_list(value, *, field_name):
     """Parse a comma-separated list of positive integer IDs."""
@@ -383,6 +416,217 @@ def build_route_graphs(assignments, network_graph_file):
     return route_graphs
 
 
+def build_station_graph(route_graphs, station_stops_by_train=None):
+    """Build a directed multigraph of station connections and train stops."""
+    station_graph = nx.MultiDiGraph()
+    station_graph.graph.update({
+        "source_route_count": len(route_graphs),
+        "station_graph": True,
+    })
+    connection_edges = {}
+    station_stops_by_train = station_stops_by_train or {}
+    stopping_trains_by_station = {}
+    for train_id, stops in station_stops_by_train.items():
+        for station in stops:
+            station_key = str(station).strip().casefold()
+            stopping_trains_by_station.setdefault(station_key, set()).add(
+                train_id
+            )
+
+    for train_id, route_graph in route_graphs.items():
+        route_nodes = route_graph.graph.get("route_node_coordinates", ())
+        assigned_segments = route_graph.graph.get("assigned_segments", ())
+        station_events = []
+        for node_index, node in enumerate(route_nodes):
+            station = route_graph.nodes[node].get("station")
+            if station in (None, "None"):
+                continue
+            if station_events and station_events[-1][0] == station:
+                continue
+            station_events.append((station, node_index))
+            station_graph.add_node(
+                station,
+                stopping_train_ids=sorted(
+                    stopping_trains_by_station.get(
+                        str(station).strip().casefold(),
+                        set(),
+                    ),
+                    key=str,
+                ),
+            )
+
+        for (origin, origin_index), (destination, destination_index) in zip(
+            station_events, station_events[1:]
+        ):
+            if origin == destination:
+                continue
+            segment_ids = list(
+                assigned_segments[origin_index:destination_index]
+            )
+            connection_key = (origin, destination, tuple(segment_ids))
+            edge_key = connection_edges.get(connection_key)
+            if edge_key is None:
+                edge_key = station_graph.add_edge(
+                    origin,
+                    destination,
+                    train_id=train_id,
+                    train_ids=[train_id],
+                    route_node_indices=(origin_index, destination_index),
+                    segment_ids=segment_ids,
+                )
+                connection_edges[connection_key] = edge_key
+            else:
+                station_graph[origin][destination][edge_key]["train_ids"].append(
+                    train_id
+                )
+
+    return station_graph
+
+
+def _ordered_route_nodes_and_segments(route_graph):
+    """Return the traversed infrastructure nodes and segment IDs in order."""
+    route_nodes = route_graph.graph.get("route_node_coordinates", ())
+    assigned_segments = route_graph.graph.get("assigned_segments", ())
+    ordered_nodes = []
+    ordered_segment_ids = []
+
+    for segment_index, segment_id in enumerate(assigned_segments):
+        if segment_index + 1 >= len(route_nodes):
+            break
+        start = route_nodes[segment_index]
+        end = route_nodes[segment_index + 1]
+        segment_graph = nx.MultiGraph()
+        for first, second, key, attributes in route_graph.edges(
+            keys=True, data=True
+        ):
+            if attributes.get("segment_id") == segment_id:
+                segment_graph.add_edge(first, second, key=key)
+        if start not in segment_graph or end not in segment_graph:
+            continue
+        try:
+            path = nx.shortest_path(segment_graph, start, end)
+        except nx.NetworkXNoPath:
+            continue
+        if ordered_nodes and path[0] == ordered_nodes[-1]:
+            path = path[1:]
+        if not path:
+            continue
+        ordered_nodes.extend(path)
+        ordered_segment_ids.extend([segment_id] * (len(path) - 1))
+
+    return ordered_nodes, ordered_segment_ids
+
+
+def build_station_junction_graph(
+    route_graphs,
+    infrastructure_graph,
+    station_stops_by_train=None,
+):
+    """Build a multigraph of stations and traversed infrastructure junctions."""
+    junction_graph = nx.MultiDiGraph()
+    junction_graph.graph.update({
+        "source_route_count": len(route_graphs),
+        "station_junction_graph": True,
+    })
+    station_stops_by_train = station_stops_by_train or {}
+    stopping_trains_by_station = {}
+    for train_id, stops in station_stops_by_train.items():
+        for station in stops:
+            station_key = str(station).strip().casefold()
+            stopping_trains_by_station.setdefault(station_key, set()).add(
+                train_id
+            )
+    connection_edges = {}
+
+    for node, attributes in infrastructure_graph.nodes(data=True):
+        station = attributes.get("station")
+        if station not in (None, "None"):
+            station_graph_node = station
+            junction_graph.add_node(
+                station_graph_node,
+                stopping_train_ids=sorted(
+                    stopping_trains_by_station.get(
+                        str(station).strip().casefold(),
+                        set(),
+                    ),
+                    key=str,
+                ),
+            )
+        elif infrastructure_graph.degree(node) > 2:
+            junction_graph.add_node(node, passing_train_ids=[])
+
+    for train_id, route_graph in route_graphs.items():
+        ordered_nodes, ordered_segment_ids = _ordered_route_nodes_and_segments(
+            route_graph
+        )
+        significant_events = []
+        for node_index, node in enumerate(ordered_nodes):
+            station = route_graph.nodes[node].get("station")
+            if station not in (None, "None"):
+                event = station
+                node_attributes = {
+                    "stopping_train_ids": sorted(
+                        stopping_trains_by_station.get(
+                            str(station).strip().casefold(),
+                            set(),
+                        ),
+                        key=str,
+                    )
+                }
+            elif infrastructure_graph.degree(node) > 2:
+                event = node
+                node_attributes = {"passing_train_ids": []}
+            else:
+                continue
+
+            if significant_events and significant_events[-1][0] == event:
+                continue
+            significant_events.append((event, node_index))
+            if event not in junction_graph:
+                junction_graph.add_node(event, **node_attributes)
+            elif "passing_train_ids" in node_attributes:
+                junction_graph.nodes[event].setdefault(
+                    "passing_train_ids", []
+                )
+            if "passing_train_ids" in node_attributes:
+                passing_train_ids = junction_graph.nodes[event][
+                    "passing_train_ids"
+                ]
+                if train_id not in passing_train_ids:
+                    passing_train_ids.append(train_id)
+
+        for (origin, origin_index), (destination, destination_index) in zip(
+            significant_events, significant_events[1:]
+        ):
+            if origin == destination:
+                continue
+            segment_ids = ordered_segment_ids[origin_index:destination_index]
+            connection_key = (origin, destination, tuple(segment_ids))
+            edge_key = connection_edges.get(connection_key)
+            if edge_key is None:
+                edge_key = junction_graph.add_edge(
+                    origin,
+                    destination,
+                    train_id=train_id,
+                    train_ids=[train_id],
+                    route_node_indices=(origin_index, destination_index),
+                    segment_ids=list(segment_ids),
+                )
+                connection_edges[connection_key] = edge_key
+            else:
+                junction_graph[origin][destination][edge_key][
+                    "train_ids"
+                ].append(train_id)
+
+    return junction_graph
+
+
+def write_station_graph(station_graph, output_file):
+    """Write the station-level directed multigraph to a pickle file."""
+    with Path(output_file).open("wb") as handle:
+        pickle.dump(station_graph, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 def write_route_graphs(route_graphs, output_file="case_study_route_graphs.pkl"):
     """Write the per-train route graphs and their complete attributes."""
     with Path(output_file).open("wb") as handle:
@@ -395,6 +639,9 @@ def assign_routes_from_csv(
     network_graph_file="case_study_network.gpickle",
     minimum_junction_angle=90.0,
     route_graph_output="case_study_route_graphs.pkl",
+    station_graph_output="case_study_station_graph.gpickle",
+    station_junction_graph_output="case_study_station_junction_graph.gpickle",
+    station_stops_file="rail_routes.csv",
     heuristic_weight=2.0,
 ):
     """Load rail routes from CSV and return their shortest feasible paths."""
@@ -407,6 +654,21 @@ def assign_routes_from_csv(
     )
     route_graphs = build_route_graphs(assignments, network_graph_file)
     write_route_graphs(route_graphs, route_graph_output)
+    station_stops_by_train = load_route_station_stops(station_stops_file)
+    with Path(network_graph_file).open("rb") as handle:
+        infrastructure_graph = pickle.load(handle)
+    write_station_graph(
+        build_station_graph(route_graphs, station_stops_by_train),
+        station_graph_output,
+    )
+    write_station_graph(
+        build_station_junction_graph(
+            route_graphs,
+            infrastructure_graph,
+            station_stops_by_train,
+        ),
+        station_junction_graph_output,
+    )
     return assignments
 
 
@@ -427,6 +689,24 @@ def main():
         "--output",
         default="case_study_route_graphs.pkl",
         help="Output pickle containing one graph per train.",
+    )
+    parser.add_argument(
+        "--station-output",
+        default="case_study_station_graph.gpickle",
+        help="Output pickle containing the station-level directed multigraph.",
+    )
+    parser.add_argument(
+        "--station-junction-output",
+        default="case_study_station_junction_graph.gpickle",
+        help=(
+            "Output pickle containing the station-and-junction directed "
+            "multigraph."
+        ),
+    )
+    parser.add_argument(
+        "--station-stops",
+        default="rail_routes.csv",
+        help="Timetable CSV used to assign stopping trains to stations.",
     )
     parser.add_argument(
         "--minimum-junction-angle",
@@ -456,8 +736,30 @@ def main():
     )
     route_graphs = build_route_graphs(assignments, args.network_graph)
     write_route_graphs(route_graphs, args.output)
+    station_stops_by_train = load_route_station_stops(args.station_stops)
+    with Path(args.network_graph).open("rb") as handle:
+        infrastructure_graph = pickle.load(handle)
+    station_graph = build_station_graph(route_graphs, station_stops_by_train)
+    write_station_graph(station_graph, args.station_output)
+    station_junction_graph = build_station_junction_graph(
+        route_graphs,
+        infrastructure_graph,
+        station_stops_by_train,
+    )
+    write_station_graph(
+        station_junction_graph,
+        args.station_junction_output,
+    )
     print(
         f"Wrote {len(route_graphs):,} route graphs to {args.output}."
+    )
+    print(
+        f"Wrote {station_graph.number_of_edges():,} station connections to "
+        f"{args.station_output}."
+    )
+    print(
+        f"Wrote {station_junction_graph.number_of_edges():,} station/junction "
+        f"connections to {args.station_junction_output}."
     )
 
 

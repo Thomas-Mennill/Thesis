@@ -2,11 +2,8 @@
 TO DO
 
 Accurate Stop Location
-Make sure speed limits are used if they exist and the trains are conventional
 Verify cant angle stuff
-Verify linear angle stuff
-Make sure the travel time calculation skips stations if the route skips stations
-and doesn't if the route stops at stations
+Verify slope angle stuff
 Optimize because certain sections have many routes doing the same thing and this will take forever
 Make an abstract graph where segments are edges (or places between signals) and stations/switches are nodes
 no need for physical properties after this step
@@ -25,6 +22,7 @@ import networkx as nx
 import scipy.interpolate as interp
 import matplotlib.pyplot as plt
 import geopandas as gpd
+import folium
 from shapely.geometry import LineString
 
 from Display_Routes import build_used_routes_network
@@ -32,6 +30,11 @@ from Display_Routes import build_used_routes_network
 
 ROUTE_GRAPH_FILE = "case_study_route_graphs.pkl"
 ROUTE_STOPS_FILE = "rail_routes.csv"
+ROUTE_DATA_FILE = "route_data.csv"
+INFRASTRUCTURE_GRAPH_FILE = "case_study_network.gpickle"
+RESULTS_FILE = "running_time_results.csv"
+NODE_RESULTS_FILE = "running_time_between_nodes.csv"
+SPEED_MAP_FILE = "first_train_speed_map.html"
 train_type = "conventional"
 
 
@@ -68,8 +71,48 @@ def load_route_station_stops(csv_file=ROUTE_STOPS_FILE):
     return station_stops
 
 
-def _route_points(route_network):
-    """Extract ordered x/y/z points from one directed route network."""
+def load_route_stop_durations(csv_file=ROUTE_DATA_FILE):
+    """Return the scheduled stop duration in seconds for each train route."""
+    with open(csv_file, encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows:
+        raise ValueError(f"Route data file {csv_file!r} is empty")
+
+    duration_row = next(
+        (
+            row for row in rows
+            if row and row[0].strip().lower() == "stop duration (s)"
+        ),
+        None,
+    )
+    if duration_row is None:
+        raise ValueError(
+            f"Route data file {csv_file!r} has no stop duration row"
+        )
+
+    stop_durations = {}
+    for column, route_id in enumerate(rows[0][1:], start=1):
+        route_id = route_id.strip()
+        if not route_id:
+            continue
+        try:
+            train_id = int(route_id)
+            stop_durations[train_id] = float(duration_row[column])
+        except (IndexError, ValueError) as error:
+            raise ValueError(
+                f"Invalid stop duration for route {route_id!r}"
+            ) from error
+    if not stop_durations:
+        raise ValueError(f"No route stop durations found in {csv_file!r}")
+    return stop_durations
+
+
+def _route_points(
+    route_network,
+    include_speed_limits=False,
+    include_route_segments=False,
+):
+    """Extract ordered x/y/z points and optional infrastructure limits."""
     def same_point(first, second):
         return math.hypot(
             float(first[0]) - float(second[0]),
@@ -81,13 +124,18 @@ def _route_points(route_network):
         raise ValueError("Route network has no ordered route nodes")
 
     coordinates = []
-    for start, end in zip(waypoints, waypoints[1:]):
+    infrastructure_speed_limits = []
+    route_segments = []
+    assigned_segments = route_network.graph.get("assigned_segments", [])
+    for segment_index, (start, end) in enumerate(zip(waypoints, waypoints[1:])):
         try:
             path = nx.shortest_path(route_network, start, end)
         except nx.NetworkXNoPath as error:
             raise ValueError(
                 f"No directed path between route nodes {start!r} and {end!r}"
             ) from error
+        segment_start = len(coordinates)
+        segment_station = None
         for first, second in zip(path, path[1:]):
             edge_data = route_network.get_edge_data(first, second)
             if not edge_data:
@@ -95,22 +143,195 @@ def _route_points(route_network):
                     f"Missing edge data for route edge {first!r}->{second!r}"
                 )
             attributes = next(iter(edge_data.values()))
+            if segment_station is None:
+                segment_station = attributes.get("station")
             geometry = attributes.get("geometry")
             if not geometry:
                 geometry = [first, second]
+            edge_speed_limits = (
+                [parse_speed_limit(attributes.get("maxspeed"))]
+                * len(geometry)
+                if include_speed_limits
+                else []
+            )
             if same_point(geometry[-1], first):
                 geometry = list(reversed(geometry))
+                edge_speed_limits.reverse()
             if not same_point(geometry[0], first):
                 raise ValueError(
                     f"Edge geometry does not start at route node {first!r}"
                 )
             if coordinates and same_point(geometry[0], coordinates[-1]):
                 geometry = geometry[1:]
+                edge_speed_limits = edge_speed_limits[1:]
             coordinates.extend(geometry)
+            if include_speed_limits:
+                infrastructure_speed_limits.extend(edge_speed_limits)
+
+        if include_route_segments and len(coordinates) > segment_start:
+            route_segments.append({
+                "start_index": segment_start,
+                "end_index": len(coordinates) - 1,
+                "path_nodes": path,
+                "station": segment_station,
+                "segment_id": (
+                    assigned_segments[segment_index]
+                    if segment_index < len(assigned_segments)
+                    else None
+                ),
+            })
 
     if len(coordinates) < 2:
         raise ValueError("Route network contains fewer than two input points")
+    if include_speed_limits:
+        result = coordinates, infrastructure_speed_limits
+        if include_route_segments:
+            return (*result, route_segments)
+        return result
     return coordinates
+
+
+def _station_stop_distances(route_segments, distances, station_stops):
+    """Return stopping distances at the longest segment of each station."""
+    stop_distances = []
+    requested_stations = set(station_stops)
+    for station in requested_stations:
+        candidates = [
+            segment for segment in route_segments
+            if segment["station"] == station
+        ]
+        if not candidates:
+            continue
+        longest_segment = max(
+            candidates,
+            key=lambda segment: (
+                distances[segment["end_index"]]
+                - distances[segment["start_index"]]
+            ),
+        )
+        stop_distances.append(distances[longest_segment["end_index"]])
+    return sorted(stop_distances)
+
+
+def _simplified_route_events(
+    route_network,
+    infrastructure_graph,
+    route_segments,
+    coordinates,
+    distances,
+):
+    """Return simplified station/junction events and their route distances."""
+    events = []
+    for segment in route_segments:
+        start_index = segment["start_index"]
+        end_index = segment["end_index"]
+        for node in segment["path_nodes"]:
+            station = route_network.nodes[node].get("station")
+            if station not in (None, "None"):
+                event_node = station
+            elif infrastructure_graph.degree(node) > 2:
+                event_node = node
+            else:
+                continue
+
+            node_index = min(
+                range(start_index, end_index + 1),
+                key=lambda index: math.hypot(
+                    float(coordinates[index][0]) - float(node[0]),
+                    float(coordinates[index][1]) - float(node[1]),
+                ),
+            )
+            if events and events[-1]["node"] == event_node:
+                continue
+            events.append({
+                "node": event_node,
+                "distance": float(distances[node_index]),
+            })
+    return events
+
+
+def _speed_color(speed_kmh, minimum_speed, maximum_speed):
+    """Return a blue-to-green-to-red color for a speed value."""
+    if maximum_speed <= minimum_speed:
+        ratio = 0.0
+    else:
+        ratio = (speed_kmh - minimum_speed) / (maximum_speed - minimum_speed)
+    ratio = max(0.0, min(1.0, ratio))
+    if ratio <= 0.5:
+        red = 0
+        green = round(510 * ratio)
+        blue = round(255 * (1 - 2 * ratio))
+    else:
+        red = round(510 * (ratio - 0.5))
+        green = round(255 * (1 - 2 * (ratio - 0.5)))
+        blue = 0
+    return f"#{red:02x}{green:02x}{blue:02x}"
+
+
+def write_first_train_speed_map(
+    route_network,
+    positions,
+    velocities,
+    train_id,
+    output_file=SPEED_MAP_FILE,
+):
+    """Write an HTML map of the first train's simulated route speed."""
+    coordinates = _route_points(route_network)
+    projected_line = gpd.GeoSeries(
+        [LineString(coordinates)], crs="EPSG:4326"
+    ).to_crs(epsg=3310).iloc[0]
+    projected_coordinates = list(projected_line.coords)
+    route_distances = [0.0]
+    for first, second in zip(projected_coordinates, projected_coordinates[1:]):
+        route_distances.append(
+            route_distances[-1]
+            + math.hypot(second[0] - first[0], second[1] - first[1])
+        )
+
+    speeds_kmh = np.asarray(velocities) * 3.6
+    minimum_speed = float(speeds_kmh.min())
+    maximum_speed = float(speeds_kmh.max())
+    center = [
+        sum(float(coordinate[1]) for coordinate in coordinates) / len(coordinates),
+        sum(float(coordinate[0]) for coordinate in coordinates) / len(coordinates),
+    ]
+    speed_map = folium.Map(location=center, zoom_start=10, control_scale=True)
+
+    for index, (first, second) in enumerate(zip(coordinates, coordinates[1:])):
+        midpoint_distance = (
+            route_distances[index] + route_distances[index + 1]
+        ) / 2
+        speed = float(np.interp(midpoint_distance, positions, speeds_kmh))
+        folium.PolyLine(
+            locations=[
+                [float(first[1]), float(first[0])],
+                [float(second[1]), float(second[0])],
+            ],
+            color=_speed_color(speed, minimum_speed, maximum_speed),
+            weight=5,
+            opacity=0.9,
+            tooltip=f"Train {train_id}: {speed:.1f} km/h",
+        ).add_to(speed_map)
+
+    legend = f"""
+    <div style="position: fixed; bottom: 30px; left: 30px;
+                width: 230px; z-index: 9999; background: white;
+                border: 2px solid grey; padding: 8px;">
+      <b>Train {train_id} speed</b><br>
+      <div style="height: 12px; margin: 5px 0; background:
+           linear-gradient(to right, blue, green, red);"></div>
+      <span style="float: left;">{minimum_speed:.1f} km/h</span>
+      <span style="float: right;">{maximum_speed:.1f} km/h</span>
+    </div>
+    """
+    speed_map.get_root().html.add_child(folium.Element(legend))
+    speed_map.fit_bounds([
+        [min(float(coordinate[1]) for coordinate in coordinates),
+         min(float(coordinate[0]) for coordinate in coordinates)],
+        [max(float(coordinate[1]) for coordinate in coordinates),
+         max(float(coordinate[0]) for coordinate in coordinates)],
+    ])
+    speed_map.save(output_file)
 
 def get_brake_curve(i, v_max, v_target, a_max, F_brake, m, g, alphas_uniform, rotating_factor, C_d, R_l, rho, A, dx=1):
     if a_max == 0:
@@ -159,7 +380,36 @@ def find_speed_limit_changes(speed_limits):
 #max centripetal acceleration from track cant angle, and a train stopping for a station or having some other limit
 
 #this needs to be modified because currently, if theta is 0, the speed limit will be 0. Small angle approximation?
-def calculate_speed_limit(r, g, max_centripetal_acceleration, vehicle_max_speed, theta=0):
+def calculate_speed_limit(
+    r,
+    g,
+    max_centripetal_acceleration,
+    vehicle_max_speed,
+    theta=0,
+    vehicle_type=None,
+    infrastructure_speed_limit=None,
+):
+    """Return the applicable speed limit in metres per second.
+
+    Non-maglev vehicles use a finite infrastructure limit in preference to
+    the geometric limit.  The vehicle maximum remains an upper bound.
+    """
+    vehicle_type = train_type if vehicle_type is None else vehicle_type
+    if (
+        str(vehicle_type).lower() != "maglev"
+        and infrastructure_speed_limit is not None
+    ):
+        if isinstance(
+            infrastructure_speed_limit, (int, float, np.number)
+        ):
+            infrastructure_limit = float(infrastructure_speed_limit)
+        else:
+            infrastructure_limit = parse_speed_limit(
+                infrastructure_speed_limit
+            )
+        if np.isfinite(infrastructure_limit):
+            return min(infrastructure_limit, vehicle_max_speed)
+
     geometric_max = min(np.sqrt(max_centripetal_acceleration*g*r), math.sqrt(g*math.tan(theta)*r))
     return min(geometric_max, vehicle_max_speed)
 
@@ -315,7 +565,11 @@ def calculate_speed_limit_geojson(geojson, g, max_centripetal_acceleration, vehi
     return speed_limits
 
 #need to pin routes together for situations where a train does not stop after a route, to preserve velocity and acceleration data. 
-def calculate_route_data(route_network, station_stops_for_route=()):
+def calculate_route_data(
+    route_network,
+    station_stops_for_route=(),
+    infrastructure_graph=None,
+):
     """Calculate running data from one directed route network."""
     rotating_factor = 1 #rotating mass factor
     m = 380000 #mass of train, kg. From TGV Duplex
@@ -327,24 +581,24 @@ def calculate_route_data(route_network, station_stops_for_route=()):
     train_height = 4.303 #metres
     g = 9.81 #gravity constant, m/s^2
     rho = 1.204 #air density, kg/m^3
-    TOLERANCE = 1E-6 #tolerance for equals
     MAX_LINEAR_ACCELERATION = 1 #g
     MAX_CENTRIPETAL_ACCELERATION = 0.15 #g
     MAX_TRAIN_SPEED = 300/3.6 #m/s
     A=train_width*train_height #frontal area of train, m^2
-    progress_step_percent = 5
     F_max = 220000 #maximum tractive force, N
     gauge_magrail = 1 #m
     gauge_standard = 1.435 #m
     MAX_BRAKING_DECELERATION = F_brake / (rotating_factor * m)
     S_POINTS = 50000
 
-    station_stop = bool(station_stops_for_route)
-    coordinates = _route_points(route_network)
+    coordinates, infrastructure_speed_limits, route_segments = _route_points(
+        route_network,
+        include_speed_limits=True,
+        include_route_segments=True,
+    )
     x = []
     y = []
     z = []
-    infrastructure_speed_limits = []
     projected_line = gpd.GeoSeries(
         [LineString(coordinates)], crs="EPSG:4326"
     ).to_crs(epsg=3310).iloc[0]
@@ -354,7 +608,6 @@ def calculate_route_data(route_network, station_stops_for_route=()):
         x.append(projected_coordinate[0])
         y.append(projected_coordinate[1])
         z.append(original_coordinate[2] if len(original_coordinate) > 2 else 0.0)
-        infrastructure_speed_limits.append(float("inf"))
 
     if len(x) < 2:
         raise ValueError("GeoJSON must contain at least one LineString with two points")
@@ -375,6 +628,16 @@ def calculate_route_data(route_network, station_stops_for_route=()):
         d += math.sqrt((x[i] - x[i - 1])**2 + (y[i] - y[i - 1])**2)
         
         s.append(d)
+
+    if infrastructure_graph is None:
+        infrastructure_graph = route_network
+    route_events = _simplified_route_events(
+        route_network,
+        infrastructure_graph,
+        route_segments,
+        coordinates,
+        np.asarray(s),
+    )
 
     for i in range(1, len(z)):
         delta_s = s[i] - s[i - 1]
@@ -405,22 +668,25 @@ def calculate_route_data(route_network, station_stops_for_route=()):
     curvature = abs(derivative_x_1 * derivative_y_2 - derivative_y_1 * derivative_x_2) / (derivative_x_1**2 + derivative_y_1**2)**(3/2)
     radii_of_curvature = 1 / curvature
 
+    infrastructure_limits_uniform = np.interp(
+        S,
+        np.asarray(s),
+        infrastructure_speed_limits,
+        left=infrastructure_speed_limits[0],
+        right=infrastructure_speed_limits[-1],
+    )
     for i in range(len(radii_of_curvature)):
-           speed_limits.append(calculate_speed_limit(radii_of_curvature[i], g, MAX_CENTRIPETAL_ACCELERATION, MAX_TRAIN_SPEED, thetas_conventional[i]))
+           speed_limits.append(calculate_speed_limit(
+               radii_of_curvature[i],
+               g,
+               MAX_CENTRIPETAL_ACCELERATION,
+               MAX_TRAIN_SPEED,
+               thetas_conventional[i],
+               vehicle_type=train_type,
+               infrastructure_speed_limit=infrastructure_limits_uniform[i],
+           ))
 
     speed_limits = standardize_speed_limits(speed_limits, distances=S, section_length_m=2000)
-
-    if train_type.lower() != "maglev" and np.isfinite(infrastructure_speed_limits).any():
-        infrastructure_limits_uniform = np.interp(
-            S,
-            np.asarray(s),
-            infrastructure_speed_limits,
-            left=infrastructure_speed_limits[0],
-            right=infrastructure_speed_limits[-1],
-        )
-        speed_limits = np.minimum(speed_limits, infrastructure_limits_uniform)
-
-
 
     times = [0]
     positions = [0]
@@ -439,13 +705,18 @@ def calculate_route_data(route_network, station_stops_for_route=()):
     dv = 0
     iteration_count = 0
 
-    #If the train stops at a station at the end of this segment, set the speed limit to 0 for the last point
-    if station_stop:    
-        speed_limits[-1] = 0
+    station_stop_distances = _station_stop_distances(
+        route_segments,
+        np.asarray(s),
+        station_stops_for_route,
+    )
+    for stop_distance in station_stop_distances:
+        stop_index = min(
+            len(speed_limits) - 1,
+            int(np.searchsorted(S, stop_distance, side="left")),
+        )
+        speed_limits[stop_index] = 0
 
-    next_progress_percent = progress_step_percent
-    print("Progress: 0%")
-    last_reported_progress = 0
     max_iterations = 100000  # Prevent infinite loops
 
     change_points = find_speed_limit_changes(speed_limits)
@@ -454,24 +725,11 @@ def calculate_route_data(route_network, station_stops_for_route=()):
 
     for point in change_points:
         if speed_limits[point] < speed_limits[point-1]:
-            print(f"Point {point} is a speed limit change.")
             dx = (S[-1] - S[0]) / (len(S) - 1)  # Distance spacing of S array
             brake_curve = get_brake_curve(point, speed_limits[point-1], speed_limits[point], MAX_LINEAR_ACCELERATION, F_brake, m, g, alphas_uniform, rotating_factor, C_d, R_l, rho, A, dx)
             for j in range(len(brake_curve)):
                 if point-len(brake_curve)+j < len(brake_limits) and brake_curve[j] < brake_limits[point-len(brake_curve)+j]:
                     brake_limits[point-len(brake_curve)+j] = brake_curve[j]
-
-    # Display speed limits and brake curves before simulation
-    plt.figure(figsize=(12, 6))
-    plt.step(S, np.array(speed_limits)*3.6, where="post", color="red", label="Speed limit")
-    plt.step(S, np.array(brake_limits)*3.6, where="post", color="green", label="Brake limits")
-    plt.xlabel("Distance along route (m)")
-    plt.ylabel("Speed (km/h)")
-    plt.title("Speed Limits and Brake Curves")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.show(block=True)
 
     while(x < S[-1]):
         iteration_count += 1
@@ -552,40 +810,43 @@ def calculate_route_data(route_network, station_stops_for_route=()):
         while(x>S[i] and i < len(S)-1):
             i+=1
 
-        if v_new - limit_at_new_position > TOLERANCE:
-            print(x_new, v_new, limit_at_new_position, v_new - limit_at_new_position)
-        
-        route_progress = min(100, int((x / S[-1]) * 100))
-        route_progress_fine = min(100, (x / S[-1]) * 100)
-        
-        if route_progress_fine >= 95:
-            # Beyond 95%: report every 0.1%
-            if route_progress_fine - last_reported_progress >= 0.1:
-                print(f"Progress: {route_progress_fine:.1f}%")
-                last_reported_progress = int(route_progress_fine * 10) / 10
-        else:
-            # Up to 95%: report every 5%
-            if route_progress >= next_progress_percent:
-                print(f"Progress: {next_progress_percent}%")
-                next_progress_percent += progress_step_percent
-                last_reported_progress = next_progress_percent - progress_step_percent
-        
-
-    if last_reported_progress < 100:
-        print("Progress: 100%")
-
-
     
-    return times, positions, velocities, c_accelerations, x_accelerations, c_forces, x_forces, S, alphas_uniform, radii_of_curvature, speed_limits, brake_limits
+    return (
+        times,
+        positions,
+        velocities,
+        c_accelerations,
+        x_accelerations,
+        c_forces,
+        x_forces,
+        S,
+        alphas_uniform,
+        radii_of_curvature,
+        speed_limits,
+        brake_limits,
+        route_events,
+    )
 
 def main(
     route_graph_file=ROUTE_GRAPH_FILE,
     route_stops_file=ROUTE_STOPS_FILE,
+    route_data_file=ROUTE_DATA_FILE,
+    results_file=RESULTS_FILE,
+    node_results_file=NODE_RESULTS_FILE,
+    infrastructure_graph_file=INFRASTRUCTURE_GRAPH_FILE,
+    speed_map_file=SPEED_MAP_FILE,
 ):
     """Calculate running time separately for every constructed train route."""
     with open(route_graph_file, "rb") as handle:
         route_graphs = pickle.load(handle)
     station_stops_by_train = load_route_station_stops(route_stops_file)
+    stop_durations_by_train = load_route_stop_durations(route_data_file)
+    with open(infrastructure_graph_file, "rb") as handle:
+        infrastructure_graph = pickle.load(handle)
+    first_train_graph_data = None
+    first_train_map_data = None
+    result_rows = []
+    node_result_rows = []
 
     for train_id, route_graph in route_graphs.items():
         route_network = build_used_routes_network({train_id: route_graph})
@@ -593,16 +854,158 @@ def main(
         results = calculate_route_data(
             route_network,
             station_stops_for_route,
+            infrastructure_graph,
         )
         times, positions, velocities = results[:3]
-        dwell_time = 60 * max(0, len(station_stops_for_route) - 2)
-        total_time = times[-1] + dwell_time
+        route_events = results[12]
+        if first_train_graph_data is None:
+            first_train_graph_data = (
+                train_id,
+                positions,
+                velocities,
+                results[7],
+                results[10],
+                results[11],
+                route_events,
+            )
+            first_train_map_data = (
+                train_id,
+                route_network,
+                positions,
+                velocities,
+            )
+        stop_duration = stop_durations_by_train.get(train_id, 0)
+        total_dwell_time = max(
+            stop_duration * (len(station_stops_for_route) - 2),
+            0,
+        )
+        total_time = times[-1] + total_dwell_time
         total_distance = positions[-1]
+        average_speed = total_distance / total_time * 3.6
+        max_speed = max(velocities, default=0) * 3.6
+        result_rows.append([
+            train_id,
+            total_time,
+            total_distance,
+            average_speed,
+            max_speed,
+        ])
+        event_times = [
+            float(np.interp(event["distance"], positions, times))
+            for event in route_events
+        ]
+        for first, second, first_time, second_time in zip(
+            route_events,
+            route_events[1:],
+            event_times,
+            event_times[1:],
+        ):
+            node_result_rows.append([
+                train_id,
+                first["node"],
+                second["node"],
+                second["distance"] - first["distance"],
+                second_time - first_time,
+            ])
         print(
             f"Train {train_id}: {total_time / 60:.2f} minutes, "
             f"{total_distance / 1000:.2f} km, "
-            f"{total_distance / total_time * 3.6:.2f} km/h"
+            f"{average_speed:.2f} km/h, "
+            f"max {max_speed:.2f} km/h"
         )
+
+    with open(results_file, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "Train ID",
+            "Travel Time (s)",
+            "Distance (m)",
+            "Average Speed (km/h)",
+            "Max Speed (km/h)",
+        ])
+        writer.writerows(result_rows)
+
+    with open(node_results_file, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "Train ID",
+            "Origin Node",
+            "Destination Node",
+            "Distance (m)",
+            "Minimum Running Time (s)",
+        ])
+        writer.writerows(node_result_rows)
+
+    if first_train_map_data is not None:
+        write_first_train_speed_map(
+            first_train_map_data[1],
+            first_train_map_data[2],
+            first_train_map_data[3],
+            first_train_map_data[0],
+            speed_map_file,
+        )
+
+    if first_train_graph_data is not None:
+        (
+            train_id,
+            positions,
+            velocities,
+            distances,
+            speed_limits,
+            brake_limits,
+            route_events,
+        ) = first_train_graph_data
+        for first_event, second_event in zip(
+            route_events,
+            route_events[1:],
+        ):
+            start_distance = first_event["distance"]
+            end_distance = second_event["distance"]
+            distance_mask = (
+                (distances >= start_distance)
+                & (distances <= end_distance)
+            )
+            position_mask = (
+                (np.asarray(positions) >= start_distance)
+                & (np.asarray(positions) <= end_distance)
+            )
+            interval_distances = distances[distance_mask] - start_distance
+            interval_positions = (
+                np.asarray(positions)[position_mask] - start_distance
+            )
+
+            plt.figure(figsize=(12, 6))
+            plt.step(
+                interval_distances,
+                np.asarray(speed_limits)[distance_mask] * 3.6,
+                where="post",
+                color="red",
+                label="Speed limit",
+            )
+            plt.step(
+                interval_distances,
+                np.asarray(brake_limits)[distance_mask] * 3.6,
+                where="post",
+                color="green",
+                label="Brake limits",
+            )
+            plt.plot(
+                interval_positions,
+                np.asarray(velocities)[position_mask] * 3.6,
+                color="blue",
+                label="Actual speed",
+            )
+            plt.xlabel("Distance from origin node (m)")
+            plt.ylabel("Speed (km/h)")
+            plt.title(
+                f"Train {train_id}: {first_event['node']} to "
+                f"{second_event['node']}"
+            )
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+
+        plt.show(block=True)
 
 
 if __name__ == "__main__":

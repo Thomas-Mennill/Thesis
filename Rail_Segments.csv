@@ -1,2 +1,0 @@
-﻿Segment #,Length (m),Slope (degrees),Curvature Radius,Curvature Type,Start Position,End Position,Start Condition,End Condition,Prev Segment #1,Prev Segment #2,Next Segment #1,Next Segment #2
-1,1000,0,,Straight,0,1000,Scope Start,Scope End,,,,

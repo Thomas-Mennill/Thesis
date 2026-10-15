@@ -5,7 +5,9 @@ LineString features with ``feature_type=track``.  Repeated station and
 station-to-station files are deduplicated by geometry.  Parallel tracks are
 retained in a NetworkX MultiGraph.  By default, the selected fragments are
 listed in ``case_study_section_names.txt`` and located in
-``between_station_sections`` and ``station_nodes``.
+``between_station_sections`` and ``station_nodes``.  Node and track features
+are annotated with ``has_platform`` when they are within a configurable
+distance of railway platforms.
 """
 
 from __future__ import annotations
@@ -23,7 +25,9 @@ from pathlib import Path
 
 import folium
 import networkx as nx
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, shape
+from shapely.ops import transform
+from shapely.strtree import STRtree
 
 
 DEFAULT_INPUT_FOLDER = "Network_For_Case_Study"
@@ -39,6 +43,9 @@ DEFAULT_SEGMENT_GEOJSON = "case_study_segments.geojson"
 DEFAULT_SEGMENT_GRAPH = "case_study_segment_graph.pkl"
 DEFAULT_SEGMENT_OUTPUT_FOLDER = "Segments"
 DEFAULT_SWITCH_GEOJSON = "NL_Switches.geojson"
+DEFAULT_PLATFORM_SOURCE = "third_try_filtered_data.geojson"
+DEFAULT_PLATFORM_FALLBACK_SOURCE = "NL_Railway_Data_Signals.geojson"
+DEFAULT_PLATFORM_DISTANCE_METERS = 3.0
 DEFAULT_ROOT_STATIONS = (
     "Arnhem Centraal",
     "Utrecht Centraal",
@@ -79,7 +86,7 @@ REMOVED_ATTRIBUTES = frozenset({
     "old_name:1985-2006", "proposed:bridge", "proposed:electrified",
     "proposed:frequency", "proposed:voltage", "ruins", "source",
     "source:ProRail", "source:date", "source:height", "source:height:date",
-    "source:maxspeed", "source:name", "spotpass", "start_date", "subway",
+    "source:name", "spotpass", "start_date", "subway",
     "supervised", "toilets", "toilets:wheelchair", "tunnel", "tunnel:name",
     "tunnel:wikipedia", "usage", "voltage", "website", "workrules", "ref",
     "ref:DB_Netz_AG", "ref:FR:sncf:resarail", "ref:FR:uic8", "ref:ProRail",
@@ -163,6 +170,32 @@ def read_fragments(input_folder, input_files=None):
             collection = json.load(handle)
         for feature in collection.get("features", []):
             yield path.name, feature
+
+
+def restore_source_attributes(properties):
+    """Restore retained source attributes stored by the splitter."""
+    source_attributes = properties.pop("source_attributes", None)
+    if source_attributes is None:
+        return properties
+    if isinstance(source_attributes, str):
+        try:
+            source_attributes = json.loads(source_attributes)
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                "Invalid source_attributes JSON in a section fragment"
+            ) from error
+    if not isinstance(source_attributes, dict):
+        raise ValueError("source_attributes must contain a JSON object")
+    for key, value in source_attributes.items():
+        if key in REMOVED_ATTRIBUTES or key in properties:
+            continue
+        if isinstance(key, str) and key.startswith("source_"):
+            source_key = key.removeprefix("source_")
+            if source_key in REMOVED_ATTRIBUTES:
+                continue
+        if key not in properties:
+            properties[key] = value
+    return properties
 
 
 def find_case_study_section_files(
@@ -263,10 +296,10 @@ def reassemble_network(
                 f"[Reassemble] Fragment {processed_sources:,}/"
                 f"{len(input_files):,}: {source_name}"
             )
-        properties = {
+        properties = restore_source_attributes({
             key: value for key, value in (feature.get("properties") or {}).items()
             if key not in REMOVED_ATTRIBUTES
-        }
+        })
         geometry = feature.get("geometry") or {}
         feature_type = properties.get("feature_type")
         coordinates = geometry.get("coordinates")
@@ -468,6 +501,169 @@ def prune_network_to_stations(
     return pruned
 
 
+def delete_nodes_near_origin_without_target_path(
+    graph,
+    origin_station,
+    target_station,
+    maximum_distance_meters,
+    minimum_angle=90.0,
+):
+    """Delete near-origin nodes without a path to the target station.
+
+    Distance is measured from the node to the nearest node labelled
+    ``origin_station``.  Paths use the same turn-angle restriction as the
+    station pruning helpers.
+    """
+    if maximum_distance_meters < 0:
+        raise ValueError("maximum_distance_meters must not be negative")
+
+    origin_nodes = {
+        node for node, attributes in graph.nodes(data=True)
+        if attributes.get("station") == origin_station
+    }
+    if not origin_nodes:
+        raise ValueError(f"No graph nodes are labelled {origin_station!r}")
+
+    destination_nodes = {
+        node for node, attributes in graph.nodes(data=True)
+        if attributes.get("station") == target_station
+    }
+    if not destination_nodes:
+        raise ValueError(f"No graph nodes are labelled {target_station!r}")
+
+    reachable_from_destination = reachable_nodes_from_station(
+        graph,
+        target_station,
+        minimum_angle,
+    )
+
+    nodes_to_delete = {
+        node for node in graph
+        if (
+            min(
+                _distance_meters(node, origin_node)
+                for origin_node in origin_nodes
+            ) <= maximum_distance_meters
+            and node not in reachable_from_destination
+        )
+    }
+    pruned = graph.copy()
+    pruned.remove_nodes_from(nodes_to_delete)
+    pruned.graph.update(
+        graph.graph,
+        local_origin_station=origin_station,
+        local_target_station=target_station,
+        local_origin_radius_meters=maximum_distance_meters,
+        local_reachability_minimum_angle_degrees=minimum_angle,
+        local_nodes_removed=len(nodes_to_delete),
+    )
+    return pruned
+
+
+def delete_nodes_near_utrecht_without_amsterdam_path(
+    graph,
+    maximum_distance_meters=5000.0,
+    origin_station="Utrecht Centraal",
+    destination_stations=("Amsterdam Zuid", "Amsterdam Centraal"),
+):
+    """Delete near-Utrecht nodes without a path to either Amsterdam station."""
+    if maximum_distance_meters < 0:
+        raise ValueError("maximum_distance_meters must not be negative")
+
+    destination_stations = tuple(dict.fromkeys(destination_stations))
+    if not destination_stations:
+        raise ValueError("At least one destination station is required")
+
+    origin_nodes = {
+        node for node, attributes in graph.nodes(data=True)
+        if attributes.get("station") == origin_station
+    }
+    if not origin_nodes:
+        raise ValueError(f"No graph nodes are labelled {origin_station!r}")
+
+    target_nodes = {
+        node for node, attributes in graph.nodes(data=True)
+        if attributes.get("station") in destination_stations
+    }
+    if not target_nodes:
+        raise ValueError(
+            "No graph nodes are labelled with a requested destination station"
+        )
+
+    reachable_from_target = set()
+    for component in nx.connected_components(graph):
+        if component & target_nodes:
+            reachable_from_target.update(component)
+
+    nodes_to_delete = {
+        node for node in graph
+        if (
+            min(
+                _distance_meters(node, origin_node)
+                for origin_node in origin_nodes
+            ) <= maximum_distance_meters
+            and node not in reachable_from_target
+        )
+    }
+    pruned = graph.copy()
+    pruned.remove_nodes_from(nodes_to_delete)
+    pruned.graph.update(
+        graph.graph,
+        local_origin_station=origin_station,
+        local_destination_stations=list(destination_stations),
+        local_origin_radius_meters=maximum_distance_meters,
+        local_nodes_removed=len(nodes_to_delete),
+    )
+    return pruned
+
+
+def delete_disconnected_edges(graph):
+    """Delete edges in components that contain no station-labelled node."""
+    station_nodes = {
+        node for node, attributes in graph.nodes(data=True)
+        if _station_name(attributes) is not None
+    }
+    connected_nodes = set()
+    for component in nx.connected_components(graph):
+        if component & station_nodes:
+            connected_nodes.update(component)
+
+    edges_to_delete = [
+        (first, second, key)
+        for first, second, key in graph.edges(keys=True)
+        if first not in connected_nodes or second not in connected_nodes
+    ]
+    cleaned = graph.copy()
+    cleaned.remove_edges_from(edges_to_delete)
+    cleaned.graph.update(
+        graph.graph,
+        disconnected_edges_removed=len(edges_to_delete),
+    )
+    return cleaned
+
+
+def delete_non_station_degree_one_nodes(graph):
+    """Delete non-station leaf nodes until no such nodes remain."""
+    cleaned = graph.copy()
+    removed_nodes = 0
+    while True:
+        leaf_nodes = [
+            node for node, attributes in cleaned.nodes(data=True)
+            if cleaned.degree(node) == 1
+            and _station_name(attributes) is None
+        ]
+        if not leaf_nodes:
+            break
+        cleaned.remove_nodes_from(leaf_nodes)
+        removed_nodes += len(leaf_nodes)
+
+    cleaned.graph.update(
+        graph.graph,
+        non_station_degree_one_nodes_removed=removed_nodes,
+    )
+    return cleaned
+
+
 def _point_line_distance(point, first, second):
     """Return the perpendicular distance from a point to an infinite line."""
     line_x = second[0] - first[0]
@@ -627,6 +823,113 @@ def _distance_meters(first, second):
         (first[0] - second[0]) * longitude_scale,
         (first[1] - second[1]) * latitude_scale,
     )
+
+
+def annotate_has_platform(
+    graph,
+    platform_source=DEFAULT_PLATFORM_SOURCE,
+    platform_distance_meters=DEFAULT_PLATFORM_DISTANCE_METERS,
+):
+    """Annotate nodes and edges that fall within the platform distance."""
+    if platform_distance_meters < 0:
+        raise ValueError("platform_distance_meters must not be negative")
+
+    source_path = Path(platform_source)
+    if not source_path.is_file():
+        fallback_path = Path(DEFAULT_PLATFORM_FALLBACK_SOURCE)
+        if (
+            platform_source == DEFAULT_PLATFORM_SOURCE
+            and fallback_path.is_file()
+        ):
+            source_path = fallback_path
+        else:
+            raise FileNotFoundError(
+                f"Platform source file not found: {source_path}"
+            )
+
+    with source_path.open(encoding="utf-8") as handle:
+        collection = json.load(handle)
+    platform_geometries = []
+    for feature in collection.get("features", []):
+        properties = feature.get("properties") or {}
+        if properties.get("railway") != "platform":
+            continue
+        geometry = feature.get("geometry")
+        if geometry is None:
+            continue
+        platform_geometry = shape(geometry)
+        if platform_geometry.is_empty:
+            continue
+        platform_geometries.append(platform_geometry)
+    if not platform_geometries:
+        raise ValueError(
+            f"No railway=platform geometries found in {source_path}"
+        )
+
+    if graph.number_of_nodes() > 0:
+        mean_latitude = sum(node[1] for node in graph.nodes) / graph.number_of_nodes()
+    else:
+        mean_latitude = 52.0
+    latitude_radians = math.radians(mean_latitude)
+    longitude_scale = 111320 * math.cos(latitude_radians)
+    latitude_scale = 110540
+
+    def to_metric(x, y, z=None):
+        x_metric = x * longitude_scale
+        y_metric = y * latitude_scale
+        if z is None:
+            return x_metric, y_metric
+        return x_metric, y_metric, z
+
+    platform_geometries_metric = [
+        transform(to_metric, platform_geometry)
+        for platform_geometry in platform_geometries
+    ]
+    platform_tree = STRtree(platform_geometries_metric)
+
+    def has_nearby_platform(geometry_metric):
+        candidate_matches = platform_tree.query(
+            geometry_metric.buffer(platform_distance_meters)
+        )
+        for candidate in candidate_matches:
+            if hasattr(candidate, "geom_type"):
+                candidate_geometry = candidate
+            else:
+                candidate_geometry = platform_geometries_metric[int(candidate)]
+            if (
+                geometry_metric.distance(candidate_geometry)
+                <= platform_distance_meters
+            ):
+                return True
+        return False
+
+    nodes_with_platform = 0
+    for node, attributes in graph.nodes(data=True):
+        node_geometry_metric = Point(
+            node[0] * longitude_scale,
+            node[1] * latitude_scale,
+        )
+        has_platform = has_nearby_platform(node_geometry_metric)
+        attributes["has_platform"] = has_platform
+        nodes_with_platform += int(has_platform)
+
+    edges_with_platform = 0
+    for first, second, key, attributes in graph.edges(keys=True, data=True):
+        coordinates = attributes.get("geometry") or [first, second]
+        if len(coordinates) < 2:
+            coordinates = [first, second]
+        edge_geometry_metric = transform(to_metric, LineString(coordinates))
+        has_platform = has_nearby_platform(edge_geometry_metric)
+        attributes["has_platform"] = has_platform
+        edges_with_platform += int(has_platform)
+
+    graph.graph.update(
+        has_platform_source=str(source_path),
+        has_platform_distance_meters=platform_distance_meters,
+        has_platform_nodes=nodes_with_platform,
+        has_platform_edges=edges_with_platform,
+    )
+    return graph
 
 
 def assign_network_ids(graph):
@@ -949,6 +1252,69 @@ def _map_property_value(value):
     return str(value)
 
 
+def _speed_limit_kmh(attributes):
+    """Return maxspeed, falling back to the other speed-limit attributes."""
+    values = []
+    speed_keys = (
+        ("maxspeed",)
+        if attributes.get("maxspeed") is not None
+        else ("speed_limit", "speed_limits")
+    )
+    for key in speed_keys:
+        value = attributes.get(key)
+        if value is None:
+            continue
+        candidates = value if isinstance(value, (list, tuple, set)) else [value]
+        for candidate in candidates:
+            text = str(candidate).lower().replace(",", ".")
+            match = re.search(r"-?\d+(?:\.\d+)?", text)
+            if not match:
+                continue
+            speed = float(match.group())
+            if "mph" in text:
+                speed *= 1.609344
+            elif "m/s" in text or "ms-1" in text:
+                speed *= 3.6
+            if math.isfinite(speed) and speed >= 0:
+                values.append(speed)
+    return min(values) if values else None
+
+
+def _speed_color(speed_kmh, minimum, maximum):
+    """Map a speed limit to a blue-green-orange-red gradient."""
+    if speed_kmh is None:
+        return "#000000"
+    if maximum <= minimum:
+        position = 0.5
+    else:
+        position = (speed_kmh - minimum) / (maximum - minimum)
+    position = max(0.0, min(1.0, position))
+    stops = (
+        (0.0, (0, 102, 255)),
+        (1 / 3, (0, 180, 80)),
+        (2 / 3, (255, 165, 0)),
+        (1.0, (220, 0, 0)),
+    )
+    for (first_position, first_color), (second_position, second_color) in zip(
+        stops, stops[1:]
+    ):
+        if position <= second_position:
+            fraction = (
+                position - first_position
+            ) / (second_position - first_position)
+            color = [
+                round(
+                    first_component
+                    + fraction * (second_component - first_component)
+                )
+                for first_component, second_component in zip(
+                    first_color, second_color
+                )
+            ]
+            return "#" + "".join(f"{component:02x}" for component in color)
+    return "#dc0000"
+
+
 def _segment_colors(graph):
     """Assign one of four colors to each pairwise-adjacent segment."""
     segment_adjacency = nx.Graph()
@@ -968,11 +1334,61 @@ def _segment_colors(graph):
         segment_adjacency,
         strategy="saturation_largest_first",
     )
-    if colors and max(colors.values()) >= 4:
-        raise ValueError(
-            "The segment adjacency graph requires more than four colors; "
-            "the four-color map assumption does not hold for this network."
-        )
+    if not colors or max(colors.values()) < 4:
+        return colors
+
+    def four_color_component(component):
+        """Find a four-coloring using DSATUR ordering and backtracking."""
+        component_graph = segment_adjacency.subgraph(component)
+        assigned = {}
+
+        def assign_next():
+            if len(assigned) == len(component_graph):
+                return True
+
+            unassigned = [
+                node for node in component_graph
+                if node not in assigned
+            ]
+            node = max(
+                unassigned,
+                key=lambda candidate: (
+                    len({
+                        assigned[neighbor]
+                        for neighbor in component_graph[candidate]
+                        if neighbor in assigned
+                    }),
+                    component_graph.degree(candidate),
+                    -candidate,
+                ),
+            )
+            used_colors = {
+                assigned[neighbor]
+                for neighbor in component_graph[node]
+                if neighbor in assigned
+            }
+            for color in range(4):
+                if color in used_colors:
+                    continue
+                assigned[node] = color
+                if assign_next():
+                    return True
+                del assigned[node]
+            return False
+
+        if not assign_next():
+            return None
+        return assigned
+
+    colors = {}
+    for component in nx.connected_components(segment_adjacency):
+        component_colors = four_color_component(component)
+        if component_colors is None:
+            raise ValueError(
+                "The segment adjacency graph requires more than four colors; "
+                "the four-color map assumption does not hold for this network."
+            )
+        colors.update(component_colors)
     return colors
 
 
@@ -980,8 +1396,10 @@ def write_network_map(
     graph,
     output_html=DEFAULT_OUTPUT_MAP,
     centerline_features=None,
+    color_by_speed=False,
+    show_nodes=True,
 ):
-    """Write a map showing only IDs and speed-limit attributes."""
+    """Write a map showing tracks and optional nodes with speed-limit colors."""
     if not graph:
         raise ValueError("Cannot create a map for an empty graph")
 
@@ -997,30 +1415,47 @@ def write_network_map(
         edge_records.append((start, end, key, attributes))
 
     node_features = []
-    for node, attributes in graph.nodes(data=True):
-        properties = {
-            "node_id": _map_property_value(attributes.get("node_id")),
-            "segment_ids": _map_property_value(
-                attributes.get("segment_ids", [])
-            ),
-        }
-        properties["connected_edge_ids"] = _map_property_value(
-            sorted(
-                edge_id for edge_id in incident_edge_ids[node]
-                if edge_id is not None
+    if show_nodes:
+        for node, attributes in graph.nodes(data=True):
+            speed_limit = _speed_limit_kmh(attributes)
+            properties = {
+                "node_id": _map_property_value(attributes.get("node_id")),
+                "segment_ids": _map_property_value(
+                    attributes.get("segment_ids", [])
+                ),
+                "speed_limit_kmh": _map_property_value(speed_limit),
+            }
+            properties["connected_edge_ids"] = _map_property_value(
+                sorted(
+                    edge_id for edge_id in incident_edge_ids[node]
+                    if edge_id is not None
+                )
             )
-        )
-        properties["feature_type"] = "node"
-        node_features.append({
-            "type": "Feature",
-            "properties": properties,
-            "geometry": {"type": "Point", "coordinates": list(node)},
-        })
+            properties["feature_type"] = "node"
+            node_features.append({
+                "type": "Feature",
+                "properties": properties,
+                "geometry": {"type": "Point", "coordinates": list(node)},
+                "speed_limit_kmh": speed_limit,
+            })
 
     segment_colors = _segment_colors(graph)
     color_palette = ["red", "blue", "green", "yellow"]
+    speed_values = [
+        speed for _, _, _, attributes in edge_records
+        for speed in [_speed_limit_kmh(attributes)]
+        if speed is not None
+    ]
+    speed_values.extend(
+        feature["speed_limit_kmh"]
+        for feature in node_features
+        if feature["speed_limit_kmh"] is not None
+    )
+    speed_minimum = min(speed_values) if speed_values else 0.0
+    speed_maximum = max(speed_values) if speed_values else 0.0
     edge_features = []
     for start, end, _key, attributes in edge_records:
+        speed_limit = _speed_limit_kmh(attributes)
         properties = {
             "edge_id": _map_property_value(attributes.get("edge_id")),
             "segment_id": _map_property_value(attributes.get("segment_id")),
@@ -1033,6 +1468,7 @@ def write_network_map(
             "end_node_id": _map_property_value(
                 graph.nodes[end].get("node_id")
             ),
+            "speed_limit_kmh": _map_property_value(speed_limit),
         })
         for speed_key in ("maxspeed", "speed_limit", "speed_limits"):
             if speed_key in attributes:
@@ -1051,6 +1487,7 @@ def write_network_map(
                 "type": "LineString",
                 "coordinates": attributes["geometry"],
             },
+            "speed_limit_kmh": speed_limit,
         })
 
     def add_tooltip_layer(
@@ -1066,36 +1503,73 @@ def write_network_map(
         for feature in features:
             for field in fields:
                 feature["properties"].setdefault(field, "")
-        folium.GeoJson(
-            {"type": "FeatureCollection", "features": features},
-            name=name,
-            style_function=lambda feature, layer_color=color, layer_weight=weight: {
-                "color": (
-                    feature["properties"].get("segment_color", layer_color)
-                    if property_color else layer_color
+            if color_by_speed:
+                feature["properties"]["speed_color"] = _speed_color(
+                    feature.get("speed_limit_kmh"),
+                    speed_minimum,
+                    speed_maximum,
+                )
+        feature_groups = {name: features}
+        if color_by_speed and name == "Nodes":
+            feature_groups = {}
+            for feature in features:
+                feature_color = feature["properties"]["speed_color"]
+                feature_groups.setdefault(feature_color, []).append(feature)
+        for group_name, group_features in feature_groups.items():
+            group_color = (
+                group_name if name == "Nodes" and color_by_speed else color
+            )
+            folium.GeoJson(
+                {"type": "FeatureCollection", "features": group_features},
+                name=name,
+                style_function=(
+                    lambda feature, layer_color=group_color,
+                    layer_weight=weight: {
+                        "color": (
+                            feature["properties"].get(
+                                "speed_color", layer_color
+                            )
+                            if color_by_speed
+                            else (
+                                feature["properties"].get(
+                                    "segment_color", layer_color
+                                )
+                                if property_color else layer_color
+                            )
+                        ),
+                        "weight": layer_weight,
+                        "fillColor": (
+                            feature["properties"].get(
+                                "speed_color", layer_color
+                            )
+                            if color_by_speed
+                            else (
+                                feature["properties"].get(
+                                    "segment_color", layer_color
+                                )
+                                if property_color else layer_color
+                            )
+                        ),
+                        "fillOpacity": 0.9,
+                    }
                 ),
-                "weight": layer_weight,
-                "fillColor": (
-                    feature["properties"].get("segment_color", layer_color)
-                    if property_color else layer_color
+                marker=folium.CircleMarker(
+                    radius=4,
+                    color=group_color,
+                    fill=True,
+                    fill_color=group_color,
+                    fill_opacity=0.9,
                 ),
-                "fillOpacity": 0.9,
-            },
-            marker=folium.CircleMarker(
-                radius=4,
-                color=color,
-                fill=True,
-                fill_color=color,
-                fill_opacity=0.9,
-            ),
-            tooltip=folium.GeoJsonTooltip(
-                fields=fields,
-                aliases=[field.replace("_", " ").title() for field in fields],
-                localize=True,
-                sticky=False,
-                labels=True,
-            ),
-        ).add_to(parent)
+                tooltip=folium.GeoJsonTooltip(
+                    fields=fields,
+                    aliases=[
+                        field.replace("_", " ").title() for field in fields
+                    ],
+                    localize=True,
+                    sticky=False,
+                    labels=True,
+                ),
+            ).add_to(parent)
 
     coordinates = [list(node) for node in graph.nodes]
     center = [
@@ -1117,17 +1591,23 @@ def write_network_map(
         [
             "edge_id", "segment_id", "start_node_id", "end_node_id",
             "maxspeed", "speed_limit", "speed_limits",
+            "speed_limit_kmh",
         ],
-        property_color=True,
+        property_color=not color_by_speed,
     )
-    add_tooltip_layer(
-        network_map,
-        node_features,
-        "Nodes",
-        "#d32f2f",
-        1,
-        ["node_id", "segment_ids", "connected_edge_ids"],
-    )
+    if show_nodes:
+        add_tooltip_layer(
+            network_map,
+            node_features,
+            "Nodes",
+            "#d32f2f",
+            1,
+            [
+                "node_id", "segment_ids", "connected_edge_ids",
+                "speed_limit_kmh",
+            ],
+            property_color=False,
+        )
     if centerline_features:
         folium.GeoJson(
             {"type": "FeatureCollection", "features": centerline_features},
@@ -1605,6 +2085,23 @@ def main():
         default=DEFAULT_SEGMENT_OUTPUT_FOLDER,
         help="Folder for one GeoJSON file per segment.",
     )
+    parser.add_argument(
+        "--platform-source",
+        default=DEFAULT_PLATFORM_SOURCE,
+        help=(
+            "GeoJSON source containing railway=platform features used for "
+            "has_platform annotation."
+        ),
+    )
+    parser.add_argument(
+        "--platform-distance-meters",
+        type=float,
+        default=DEFAULT_PLATFORM_DISTANCE_METERS,
+        help=(
+            "Distance threshold for has_platform (default: "
+            f"{DEFAULT_PLATFORM_DISTANCE_METERS:g} m)."
+        ),
+    )
     parser.add_argument("--stations", nargs="+", default=list(DEFAULT_ROOT_STATIONS))
     args = parser.parse_args()
 
@@ -1615,6 +2112,26 @@ def main():
         station_nodes_folder=args.station_nodes_folder,
     )
     graph = prune_network_to_stations(graph, args.stations)
+    graph = delete_nodes_near_origin_without_target_path(
+        graph,
+        origin_station="Utrecht Centraal",
+        target_station="Amsterdam Centraal",
+        maximum_distance_meters=5000.0,
+    )
+    graph = delete_nodes_near_origin_without_target_path(
+        graph,
+        origin_station="Amsterdam Centraal",
+        target_station="Utrecht Centraal",
+        maximum_distance_meters=5000.0,
+    )
+    graph = delete_disconnected_edges(graph)
+    graph = delete_non_station_degree_one_nodes(graph)
+    graph = annotate_has_platform(
+        graph,
+        platform_source=args.platform_source,
+        platform_distance_meters=args.platform_distance_meters,
+    )
+    assign_network_ids(graph)
     # Direction calculation is temporarily suspended. Keep the implementation
     # above available so it can be re-enabled without restoring code.
     graph = split_into_segments(

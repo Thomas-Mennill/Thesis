@@ -16,6 +16,7 @@ DEFAULT_ROUTE_GRAPHS = "case_study_route_graphs.pkl"
 DEFAULT_OUTPUT_GRAPH = "case_study_routes_network.gpickle"
 DEFAULT_OUTPUT_GEOJSON = "case_study_routes_network.geojson"
 DEFAULT_OUTPUT_MAP = "case_study_routes_network_map.html"
+DEFAULT_OUTPUT_MAP_NO_NODES = "case_study_routes_network_map_no_nodes.html"
 
 
 def load_route_graphs(route_graph_file=DEFAULT_ROUTE_GRAPHS):
@@ -32,7 +33,7 @@ def load_route_graphs(route_graph_file=DEFAULT_ROUTE_GRAPHS):
 
 
 def build_used_routes_network(route_graphs):
-    """Build a directed union containing only train-traversed edges."""
+    """Build a directed union retaining maxspeed on used track edges."""
     network = nx.MultiDiGraph()
     edge_route_ids = {}
     for train_id, route_graph in route_graphs.items():
@@ -107,6 +108,7 @@ def write_used_routes_network(
     output_graph=DEFAULT_OUTPUT_GRAPH,
     output_geojson=DEFAULT_OUTPUT_GEOJSON,
     output_map=DEFAULT_OUTPUT_MAP,
+    output_map_no_nodes=DEFAULT_OUTPUT_MAP_NO_NODES,
 ):
     """Create all outputs for the union of tracks used by any route."""
     route_graphs = load_route_graphs(route_graph_file)
@@ -114,7 +116,13 @@ def write_used_routes_network(
     with Path(output_graph).open("wb") as handle:
         pickle.dump(network, handle, protocol=pickle.HIGHEST_PROTOCOL)
     write_geojson(network, output_geojson)
-    write_network_map(network, output_map)
+    write_network_map(network, output_map, color_by_speed=True)
+    write_network_map(
+        network,
+        output_map_no_nodes,
+        color_by_speed=True,
+        show_nodes=False,
+    )
     print(
         f"Used-route network: {network.number_of_nodes():,} nodes, "
         f"{network.number_of_edges():,} tracks from "
@@ -123,6 +131,7 @@ def write_used_routes_network(
     print(f"Graph: {output_graph}")
     print(f"GeoJSON: {output_geojson}")
     print(f"Map: {output_map}")
+    print(f"Map without nodes: {output_map_no_nodes}")
     return network
 
 
@@ -132,12 +141,18 @@ def main():
     parser.add_argument("--output-graph", default=DEFAULT_OUTPUT_GRAPH)
     parser.add_argument("--output-geojson", default=DEFAULT_OUTPUT_GEOJSON)
     parser.add_argument("--output-map", default=DEFAULT_OUTPUT_MAP)
+    parser.add_argument(
+        "--output-map-no-nodes",
+        default=DEFAULT_OUTPUT_MAP_NO_NODES,
+        help="HTML map showing only track edges.",
+    )
     args = parser.parse_args()
     write_used_routes_network(
         route_graph_file=args.route_graphs,
         output_graph=args.output_graph,
         output_geojson=args.output_geojson,
         output_map=args.output_map,
+        output_map_no_nodes=args.output_map_no_nodes,
     )
 
 
