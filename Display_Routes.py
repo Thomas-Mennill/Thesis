@@ -39,8 +39,8 @@ def build_used_routes_network(route_graphs):
     for train_id, route_graph in route_graphs.items():
         network.graph.update(copy.deepcopy(route_graph.graph))
         route_nodes = route_graph.graph.get("route_node_coordinates")
-        assigned_segments = route_graph.graph.get("assigned_segments")
-        if not route_nodes or not assigned_segments:
+        assigned_edges = route_graph.graph.get("assigned_edges")
+        if not route_nodes or not assigned_edges:
             raise ValueError(
                 f"Route graph for train {train_id!r} lacks ordered traversal data"
             )
@@ -48,7 +48,7 @@ def build_used_routes_network(route_graphs):
         for node, attributes in route_graph.nodes(data=True):
             network.add_node(node, **copy.deepcopy(attributes))
 
-        for index, segment_id in enumerate(assigned_segments):
+        for index, edge_id in enumerate(assigned_edges):
             if index + 1 >= len(route_nodes):
                 break
             start = route_nodes[index]
@@ -60,7 +60,7 @@ def build_used_routes_network(route_graphs):
             for first, second, key, attributes in route_graph.edges(
                 keys=True, data=True
             ):
-                if attributes.get("segment_id") == segment_id:
+                if str(attributes.get("edge_id")) == str(edge_id):
                     segment_graph.add_edge(
                         first,
                         second,
@@ -76,7 +76,7 @@ def build_used_routes_network(route_graphs):
             for first, second in zip(path, path[1:]):
                 candidates = route_graph.get_edge_data(first, second) or {}
                 for key, attributes in candidates.items():
-                    if attributes.get("segment_id") == segment_id:
+                    if str(attributes.get("edge_id")) == str(edge_id):
                         edge_identity = (first, second, key)
                         edge_route_ids.setdefault(edge_identity, set()).add(
                             train_id

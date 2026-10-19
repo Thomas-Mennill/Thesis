@@ -127,12 +127,12 @@ def _segment_lengths(network_graph):
     for first, second, key, attributes in network_graph.edges(
         keys=True, data=True
     ):
-        segment_id = attributes.get("segment_id")
-        if segment_id is None:
-            continue
-        lengths[segment_id] = lengths.get(segment_id, 0.0) + _edge_length(
-            first, second, attributes
-        )
+        edge_id = attributes.get("edge_id")
+        if edge_id is None:
+            raise ValueError(
+                f"Network edge {(first, second, key)!r} has no edge_id"
+            )
+        lengths[str(edge_id)] = _edge_length(first, second, attributes)
     return lengths
 
 

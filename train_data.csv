@@ -1,19 +1,19 @@
-﻿,VIRM-4,VIRM-6,SLT-4,SLT-6,ICE-3NEO,FLIRT-4,FLIRT-5,FLIRT-6,SNG-3,SNG-4,GTW-2,GTW-3,Protos,Mat-64,Maglev,ICM-3,ICM-4,DDZ-4,DDZ-6,ICNG-5,ICNG-8
-Max Speed (km/h),140,140,140,140,,,,,,,,,,,,,,,,,
-Mass (kg),235700,349000,129000,176000,,,,,,,,,,,,,,,,,
-Brake Acceleration (m/s^2),0.6,0.6,0.6,0.6,,,,,,,,,,,,,,,,,
-Power (W),1608000,2312000,1260000,1680000,,,,,,,,,,,,,,,,,
-Width (m),3.02,3.02,2.84,2.84,,,,,,,,,,,,,,,,,
-Height (m),4.67,4.67,4.21,4.21,,,,,,,,,,,,,,,,,
-Max Tractive Force (N),353550,523500,193500,264000,,,,,,,,,,,,,,,,,
-Gauge (m),1.435,1.435,1.435,1.435,,,,,,,,,,,,,,,,,
-Length (m),108.56,162.1,69.36,100.54,,,,,,,,,,,,,,,,,
-Max acceleration m/s^2,1.5,1.5,1.5,1.5,,,,,,,,,,,,,,,,,
-Drag Coefficient,,,,,,,,,,,,,,,,,,,,,
-Linear Resistance,,,,,,,,,,,,,,,,,,,,,
-Constant Resistance,,,,,,,,,,,,,,,,,,,,,
-,,,,,,,,,,,,,,,,,,,,,
-Sources,https://web.archive.org/web/20170803143035/http://www.bombardier.com/en/transportation/projects/project/project-lightbox.virm-netherlands.html,,https://en.wikipedia.org/wiki/Sprinter_Lighttrain,,,,,,,,,,,,,,,,,,
-,https://www.ns.nl/binaries/_ht_1533730718741/content/assets/ns-nl/overig/posters/poster-intercity-virm.pdf,,,,,,,,,,,,,,,,,,,,
-,https://wiki.ovinnederland.nl/wiki/VIRM,,,,,,,,,,,,,,,,,,,,
-,Brake data from AI - find better source,,,,,,,,,,,,,,,,,,,,
+﻿,VIRM-4,VIRM-6,SLT-4,SLT-6,ICE-3NEO,FLIRT-4,FLIRT-5,FLIRT-6,SNG-3,SNG-4,GTW-2,GTW-3,Protos,Mat-64,Maglev,ICM-3,ICM-4,DDZ-4,DDZ-6,ICNG-5,ICNG-8,Maglev
+max_speed (km/h),140,140,140,140,,,,,,,,,,300,,,,,,,,500
+Mass (kg),235700,349000,129000,176000,,,,,,,,,,,,,,,,,,318000
+Brake Acceleration (m/s^2),0.6,0.6,0.6,0.6,,,,,,,,,,,,,,,,,,1
+Power (W),1608000,2312000,1260000,1680000,,,,,,,,,,,,,,,,,,3000000
+Width (m),3.02,3.02,2.84,2.84,,,,,,,,,,,,,,,,,,3
+Height (m),4.67,4.67,4.21,4.21,,,,,,,,,,,,,,,,,,4.2
+Max Tractive Force (N),353550,523500,193500,264000,,,,,,,,,,,,,,,,,,276000
+Gauge (m),1.435,1.435,1.435,1.435,,,,,,,,,,,,,,,,,,
+Length (m),108.56,162.1,69.36,100.54,,,,,,,,,,,,,,,,,,153.6
+Max acceleration m/s^2,1.5,1.5,1.5,1.5,,,,,,,,,,,,,,,,,,1.5
+Drag Coefficient,,,,,,,,,,,,,,,,,,,,,,0.26
+Linear Resistance,,,,,,,,,,,,,,,,,,,,,,0
+Constant Resistance,,,,,,,,,,,,,,,,,,,,,,0
+,,,,,,,,,,,,,,,,,,,,,,
+Sources,https://web.archive.org/web/20170803143035/http://www.bombardier.com/en/transportation/projects/project/project-lightbox.virm-netherlands.html,,https://en.wikipedia.org/wiki/Sprinter_Lighttrain,,,,,,,,,,,,,,,,,,,
+,https://www.ns.nl/binaries/_ht_1533730718741/content/assets/ns-nl/overig/posters/poster-intercity-virm.pdf,,,,,,,,,,,,,,,,,,,,,
+,https://wiki.ovinnederland.nl/wiki/VIRM,,,,,,,,,,,,,,,,,,,,,
+,Brake data from AI - find better source,,,,,,,,,,,,,,,,,,,,,

@@ -1,12 +1,8 @@
 """
 TO DO
 
-Accurate Stop Location
 Verify cant angle stuff
 Verify slope angle stuff
-Optimize because certain sections have many routes doing the same thing and this will take forever
-Make an abstract graph where segments are edges (or places between signals) and stations/switches are nodes
-no need for physical properties after this step
 
 
 """
@@ -126,7 +122,7 @@ def _route_points(
     coordinates = []
     infrastructure_speed_limits = []
     route_segments = []
-    assigned_segments = route_network.graph.get("assigned_segments", [])
+    assigned_edges = route_network.graph.get("assigned_edges", [])
     for segment_index, (start, end) in enumerate(zip(waypoints, waypoints[1:])):
         try:
             path = nx.shortest_path(route_network, start, end)
@@ -174,9 +170,9 @@ def _route_points(
                 "end_index": len(coordinates) - 1,
                 "path_nodes": path,
                 "station": segment_station,
-                "segment_id": (
-                    assigned_segments[segment_index]
-                    if segment_index < len(assigned_segments)
+                "edge_id": (
+                    assigned_edges[segment_index]
+                    if segment_index < len(assigned_edges)
                     else None
                 ),
             })
@@ -191,25 +187,70 @@ def _route_points(
     return coordinates
 
 
-def _station_stop_distances(route_segments, distances, station_stops):
-    """Return stopping distances at the longest segment of each station."""
-    stop_distances = []
-    requested_stations = set(station_stops)
-    for station in requested_stations:
-        candidates = [
-            segment for segment in route_segments
-            if segment["station"] == station
-        ]
-        if not candidates:
+def _station_stop_distances(
+    route_network,
+    route_segments,
+    coordinates,
+    distances,
+    station_stops,
+):
+    """Return stops at the second labelled node of each non-origin station.
+
+    The first station in ``station_stops`` is the route origin and is not a
+    stopping point. For every later requested station, traversal must reach
+    the second node labelled with that station before the train stops. This
+    deliberately uses ordered route nodes rather than segment lengths or the
+    number of platform edges.
+    """
+    if not station_stops:
+        return []
+
+    origin_station = station_stops[0]
+    requested_stations = set(station_stops[1:]) - {origin_station}
+    if not requested_stations:
+        return []
+
+    occurrences = {station: [] for station in requested_stations}
+    seen_nodes = set()
+    for segment in route_segments:
+        start_index = segment["start_index"]
+        end_index = segment["end_index"]
+        if end_index < start_index:
             continue
-        longest_segment = max(
-            candidates,
-            key=lambda segment: (
-                distances[segment["end_index"]]
-                - distances[segment["start_index"]]
-            ),
-        )
-        stop_distances.append(distances[longest_segment["end_index"]])
+        coordinate_slice = coordinates[start_index:end_index + 1]
+        distance_slice = distances[start_index:end_index + 1]
+        for node in segment["path_nodes"]:
+            if node in seen_nodes:
+                continue
+            seen_nodes.add(node)
+            station = route_network.nodes[node].get("station")
+            if station not in requested_stations:
+                continue
+            if not coordinate_slice:
+                continue
+            node_index = min(
+                range(len(coordinate_slice)),
+                key=lambda index: (
+                    (float(coordinate_slice[index][0]) - float(node[0])) ** 2
+                    + (float(coordinate_slice[index][1]) - float(node[1])) ** 2
+                ),
+            )
+            occurrences[station].append(
+                float(distance_slice[node_index])
+            )
+
+    stop_distances = []
+    for station in station_stops[1:]:
+        if station not in occurrences:
+            continue
+        station_occurrences = occurrences[station]
+        if len(station_occurrences) < 2:
+            raise ValueError(
+                f"Station {station!r} has only "
+                f"{len(station_occurrences)} labelled route node(s); "
+                "the stopping rule requires the second labelled node."
+            )
+        stop_distances.append(station_occurrences[1])
     return sorted(stop_distances)
 
 
@@ -247,6 +288,35 @@ def _simplified_route_events(
                 "node": event_node,
                 "distance": float(distances[node_index]),
             })
+    return events
+
+
+def _route_node_events(route_network, route_segments, coordinates, distances):
+    """Return every ordered route node and its distance along the route."""
+    events = []
+    seen_nodes = set()
+    for segment in route_segments:
+        start_index = segment["start_index"]
+        end_index = segment["end_index"]
+        coordinate_slice = coordinates[start_index:end_index + 1]
+        distance_slice = distances[start_index:end_index + 1]
+        for node in segment["path_nodes"]:
+            if node in seen_nodes or not coordinate_slice:
+                continue
+            seen_nodes.add(node)
+            coordinate_index = min(
+                range(len(coordinate_slice)),
+                key=lambda index: (
+                    (float(coordinate_slice[index][0]) - float(node[0])) ** 2
+                    + (float(coordinate_slice[index][1]) - float(node[1])) ** 2
+                ),
+            )
+            events.append({
+                "node": node,
+                "station": route_network.nodes[node].get("station"),
+                "distance": float(distance_slice[coordinate_index]),
+            })
+    events.sort(key=lambda event: event["distance"])
     return events
 
 
@@ -638,6 +708,12 @@ def calculate_route_data(
         coordinates,
         np.asarray(s),
     )
+    route_node_events = _route_node_events(
+        route_network,
+        route_segments,
+        coordinates,
+        np.asarray(s),
+    )
 
     for i in range(1, len(z)):
         delta_s = s[i] - s[i - 1]
@@ -706,7 +782,9 @@ def calculate_route_data(
     iteration_count = 0
 
     station_stop_distances = _station_stop_distances(
+        route_network,
         route_segments,
+        coordinates,
         np.asarray(s),
         station_stops_for_route,
     )
@@ -795,7 +873,7 @@ def calculate_route_data(
 
         positions.append(x_new)
         velocities.append(v_new)
-        times.append(t)
+        times.append(t + dt)
         c_accelerations.append(v_new**2/radii_of_curvature[i])
         x_accelerations.append(dv/dt)
         c_forces.append(m*v_new**2/radii_of_curvature[i])
@@ -825,7 +903,74 @@ def calculate_route_data(
         speed_limits,
         brake_limits,
         route_events,
+        route_node_events,
     )
+
+
+def _signature_value(value):
+    """Convert model metadata into a stable, hashable signature value."""
+    if isinstance(value, dict):
+        return tuple(sorted(
+            (key, _signature_value(item))
+            for key, item in value.items()
+        ))
+    if isinstance(value, (list, tuple, set)):
+        return tuple(_signature_value(item) for item in value)
+    return value
+
+
+def _route_calculation_signature(route_network, station_stops):
+    """Return the inputs that determine a route's running-time calculation."""
+    route_nodes = tuple(
+        tuple(node) for node in route_network.graph.get(
+            "route_node_coordinates", ()
+        )
+    )
+    edge_ids = tuple(route_network.graph.get("assigned_edges", ()))
+    model_attributes = tuple(
+        (name, _signature_value(route_network.graph.get(name)))
+        for name in ("train_model", "vehicle_type", "model", "train_type")
+        if name in route_network.graph
+    )
+    return (
+        train_type,
+        model_attributes,
+        route_nodes,
+        edge_ids,
+        tuple(station_stops),
+    )
+
+
+def calculate_identical_route_data(
+    route_graphs,
+    station_stops_by_train,
+    infrastructure_graph,
+):
+    """Calculate one result for each group of identical train routes.
+
+    Routes are identical when they have the same ordered route nodes, the same
+    ordered graph edge IDs, the same station-stop sequence, and the same train
+    model. Every train ID is still returned, but the numerical simulation is
+    performed only once per signature.
+    """
+    calculated = {}
+    route_data_by_train = {}
+    for train_id, route_graph in route_graphs.items():
+        route_network = build_used_routes_network({train_id: route_graph})
+        station_stops = tuple(station_stops_by_train.get(train_id, ()))
+        signature = _route_calculation_signature(route_network, station_stops)
+        if signature not in calculated:
+            calculated[signature] = (
+                route_network,
+                calculate_route_data(
+                    route_network,
+                    station_stops,
+                    infrastructure_graph,
+                ),
+            )
+        route_data_by_train[train_id] = calculated[signature]
+    return route_data_by_train
+
 
 def main(
     route_graph_file=ROUTE_GRAPH_FILE,
@@ -848,16 +993,17 @@ def main(
     result_rows = []
     node_result_rows = []
 
-    for train_id, route_graph in route_graphs.items():
-        route_network = build_used_routes_network({train_id: route_graph})
+    route_data_by_train = calculate_identical_route_data(
+        route_graphs,
+        station_stops_by_train,
+        infrastructure_graph,
+    )
+    for train_id in route_graphs:
+        route_network, results = route_data_by_train[train_id]
         station_stops_for_route = station_stops_by_train.get(train_id, [])
-        results = calculate_route_data(
-            route_network,
-            station_stops_for_route,
-            infrastructure_graph,
-        )
         times, positions, velocities = results[:3]
         route_events = results[12]
+        route_node_events = results[13]
         if first_train_graph_data is None:
             first_train_graph_data = (
                 train_id,
@@ -890,15 +1036,15 @@ def main(
             average_speed,
             max_speed,
         ])
-        event_times = [
+        node_event_times = [
             float(np.interp(event["distance"], positions, times))
-            for event in route_events
+            for event in route_node_events
         ]
         for first, second, first_time, second_time in zip(
-            route_events,
-            route_events[1:],
-            event_times,
-            event_times[1:],
+            route_node_events,
+            route_node_events[1:],
+            node_event_times,
+            node_event_times[1:],
         ):
             node_result_rows.append([
                 train_id,

@@ -42,7 +42,7 @@ const map = new maplibregl.Map({
 
 map.on("load", () => {
 
-    fetch("station_nodes/node_11240917839.geojson")
+    fetch("between_station_sections/Amsterdam_Centraal__Amsterdam_Muiderpoort.geojson")
         .then((response) => response.json())
         .then((network) => {
             map.addSource("railways", {
