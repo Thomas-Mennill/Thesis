@@ -1,8 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": ".geojson_46uwtqcc",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Kerkrade Centrum", "retained_for": "platform_end", "nearest_station": "Kerkrade Centrum", "nearest_station_distance_m": 119.68642147560007, "nearest_platform": "1309", "nearest_platform_distance_m": 3.9999928414499948, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 6.057189152500297, 50.862460734367154 ] } }
-]
-}

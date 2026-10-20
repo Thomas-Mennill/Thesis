@@ -1,9 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": ".geojson_kymy9qy1",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Enkhuizen", "retained_for": "platform_end", "nearest_station": "Enkhuizen", "nearest_station_distance_m": 248.18629250217128, "nearest_platform": "648", "nearest_platform_distance_m": 4.0000025273875774, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 5.28436855550777, 52.699204079244765 ] } },
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Enkhuizen", "retained_for": "platform_end", "nearest_station": "Enkhuizen", "nearest_station_distance_m": 248.05954625590377, "nearest_platform": "648", "nearest_platform_distance_m": 4.0000033030520612, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 5.284385378961174, 52.699151951757564 ] } }
-]
-}

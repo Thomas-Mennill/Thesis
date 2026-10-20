@@ -1,8 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": ".geojson_zjicwrvj",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Harlingen Haven", "retained_for": "platform_end", "nearest_station": "Harlingen Haven", "nearest_station_distance_m": 160.86787610510541, "nearest_platform": "677", "nearest_platform_distance_m": 4.0000062339633429, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 5.411635668786461, 53.173172834239786 ] } }
-]
-}

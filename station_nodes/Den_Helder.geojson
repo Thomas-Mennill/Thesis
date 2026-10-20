@@ -1,9 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": ".geojson_9qnmois8",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Den Helder", "retained_for": "platform_end", "nearest_station": "Den Helder", "nearest_station_distance_m": 302.33324442694476, "nearest_platform": "1187", "nearest_platform_distance_m": 3.9999935416746495, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 4.761363502957798, 52.954162909882115 ] } },
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Den Helder", "retained_for": "platform_end", "nearest_station": "Den Helder", "nearest_station_distance_m": 302.52450241378216, "nearest_platform": "346", "nearest_platform_distance_m": 4.0000047172550026, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 4.761198065251406, 52.954147404457949 ] } }
-]
-}

@@ -176,30 +176,14 @@ def find_case_study_section_files(
             selected_files.append((name, matches))
             continue
 
-        requested_parts = Path(name).stem.split("__")
-        composite_matches = []
-        for candidate_name, candidate_paths in candidates.items():
-            candidate_parts = Path(candidate_name).stem.split("__")
-            if all(part in candidate_parts for part in requested_parts):
-                composite_matches.extend(candidate_paths)
-        if composite_matches:
-            selected_files.append((name, composite_matches))
-        else:
-            missing.append(name)
+        missing.append(name)
 
     if missing:
-        generated_files = sorted(
-            path
-            for paths in candidates.values()
-            for path in paths
-        )
-        print(
-            "[Reassemble] The section list contains pair names that are not "
-            "present in the current redefined output: "
+        raise FileNotFoundError(
+            "The following listed sections were not found in "
+            f"{between_station_folder} or {station_nodes_folder}: "
             + ", ".join(missing)
-            + ". Using all generated redefined fragments instead."
         )
-        return generated_files
 
     def track_count(path):
         with path.open(encoding="utf-8") as handle:
@@ -787,15 +771,6 @@ def main():
         help=(
             "GeoJSON source containing railway=platform features used for "
             "has_platform annotation."
-        ),
-    )
-    parser.add_argument(
-        "--platform-distance-meters",
-        type=float,
-        default=DEFAULT_PLATFORM_DISTANCE_METERS,
-        help=(
-            "Distance threshold for has_platform (default: "
-            f"{DEFAULT_PLATFORM_DISTANCE_METERS:g} m)."
         ),
     )
     args = parser.parse_args()

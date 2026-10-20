@@ -3,7 +3,7 @@ import math
 import os
 import re
 import tempfile
-from collections import deque
+from collections import defaultdict, deque
 
 import geopandas as gpd
 import folium
@@ -26,7 +26,7 @@ PLATFORM_END_DISTANCE_M = 4
 PLATFORM_PARALLEL_TOLERANCE_DEGREES = 30
 STATION_BOUNDARY_POINT_DISTANCE_M = 50
 MAX_STATION_PAIR_DISTANCE_M = 50_000
-TEMPORARY_PRESERVE_STATION_BOUNDARIES = {"Amsterdam Muiderpoort"}
+MAX_STATION_COMPONENT_DIAMETER_M = 2_000
 PLATFORM_PARALLEL_DOT_THRESHOLD = math.cos(math.radians(
 	PLATFORM_PARALLEL_TOLERANCE_DEGREES
 ))
@@ -233,7 +233,7 @@ def add_track_edges(graph, data):
 				end_node = (round(end[0], 3), round(end[1], 3))
 				if start_node == end_node:
 					continue
-				segment = LineString([start, end])
+				segment = LineString([start_node, end_node])
 				graph.add_node(start_node, station="None")
 				graph.add_node(end_node, station="None")
 				graph.add_edge(
@@ -482,10 +482,13 @@ def split_edges_at_platform_ends(
 				graph.add_node(start_node)
 			if end_node not in graph:
 				graph.add_node(end_node)
-			segment = LineString([
+			segment_coordinates = list(LineString([
 				geometry.interpolate(start_position),
 				geometry.interpolate(end_position),
-			])
+			]).coords)
+			segment_coordinates[0] = start_node
+			segment_coordinates[-1] = end_node
+			segment = LineString(segment_coordinates)
 			segment_data = dict(edge_data)
 			segment_data["geometry"] = list(segment.coords)
 			segment_data["length_m"] = segment.length
@@ -683,10 +686,13 @@ def add_station_end_boundaries(graph, data, platform_station_names_by_index):
 			):
 				graph.add_node(start_node)
 				graph.add_node(end_node)
-				segment = LineString([
+				segment_coordinates = list(LineString([
 					geometry.interpolate(start_position),
 					geometry.interpolate(end_position),
-				])
+				]).coords)
+				segment_coordinates[0] = start_node
+				segment_coordinates[-1] = end_node
+				segment = LineString(segment_coordinates)
 				segment_data = dict(edge_data)
 				segment_data["geometry"] = list(segment.coords)
 				segment_data["length_m"] = segment.length
@@ -895,10 +901,13 @@ def add_station_end_boundaries_by_platform_end_axis(
 			):
 				graph.add_node(start_node)
 				graph.add_node(end_node)
-				segment = LineString([
+				segment_coordinates = list(LineString([
 					geometry.interpolate(start_position),
 					geometry.interpolate(end_position),
-				])
+				]).coords)
+				segment_coordinates[0] = start_node
+				segment_coordinates[-1] = end_node
+				segment = LineString(segment_coordinates)
 				segment_data = dict(edge_data)
 				segment_data["geometry"] = list(segment.coords)
 				segment_data["length_m"] = segment.length
@@ -952,8 +961,6 @@ def remove_redundant_station_boundaries(graph):
 		boundary_stations = graph.nodes[boundary_node].get(
 			"platform_stations", set()
 		)
-		if boundary_stations & TEMPORARY_PRESERVE_STATION_BOUNDARIES:
-			continue
 		queue = deque()
 		for neighbor, edge_keys in graph[boundary_node].items():
 			for edge_key in edge_keys:
@@ -1002,7 +1009,7 @@ def remove_redundant_station_boundaries(graph):
 							(0, 0),
 							incoming_direction,
 							outgoing_direction,
-						) <= math.radians(150)
+						) <= math.radians(90)
 					):
 						continue
 					next_state = (node, neighbor, edge_key)
@@ -1110,8 +1117,14 @@ def contract_graph_node(graph, node):
 		return False
 
 	first, second = neighbors
-	first_edge = incident_edges[0][3]
-	second_edge = incident_edges[1][3]
+	edge_by_neighbor = {
+		(other if start == node else start): attributes
+		for start, other, _key, attributes in incident_edges
+	}
+	first_edge = edge_by_neighbor.get(first)
+	second_edge = edge_by_neighbor.get(second)
+	if first_edge is None or second_edge is None:
+		return False
 	first_coordinates = list(first_edge.get("geometry", []))
 	second_coordinates = list(second_edge.get("geometry", []))
 	if not first_coordinates or not second_coordinates:
@@ -1124,7 +1137,13 @@ def contract_graph_node(graph, node):
 		second_coordinates[-1]
 	).distance(Point(node)):
 		second_coordinates.reverse()
+	first_coordinates[0] = first
+	first_coordinates[-1] = node
+	second_coordinates[0] = node
+	second_coordinates[-1] = second
 	combined_geometry = first_coordinates + second_coordinates[1:]
+	combined_geometry[0] = first
+	combined_geometry[-1] = second
 	merged_data = dict(first_edge)
 	merged_data["geometry"] = combined_geometry
 	merged_data["length_m"] = LineString(combined_geometry).length
@@ -1165,7 +1184,14 @@ def reduce_graph_to_locations(graph):
 			continue
 
 		first_edge = incident_edges[0][3]
-		second_edge = incident_edges[1][3]
+		edge_by_neighbor = {
+			(other if start == node else start): attributes
+			for start, other, _key, attributes in incident_edges
+		}
+		first_edge = edge_by_neighbor.get(first)
+		second_edge = edge_by_neighbor.get(second)
+		if first_edge is None or second_edge is None:
+			continue
 		first_coordinates = list(first_edge.get("geometry", []))
 		second_coordinates = list(second_edge.get("geometry", []))
 		if not first_coordinates or not second_coordinates:
@@ -1178,7 +1204,13 @@ def reduce_graph_to_locations(graph):
 			second_coordinates[-1]
 		).distance(Point(node)):
 			second_coordinates.reverse()
+		first_coordinates[0] = first
+		first_coordinates[-1] = node
+		second_coordinates[0] = node
+		second_coordinates[-1] = second
 		combined_geometry = first_coordinates + second_coordinates[1:]
+		combined_geometry[0] = first
+		combined_geometry[-1] = second
 		merged_data = dict(first_edge)
 		merged_data["geometry"] = combined_geometry
 		merged_data["length_m"] = LineString(combined_geometry).length
@@ -1191,7 +1223,7 @@ def reduce_graph_to_locations(graph):
 
 
 def station_nodes_from_retained_platforms(graph):
-	"""Return station membership from platform-boundary node metadata."""
+	"""Assign retained nodes and single-station components to stations."""
 	print(
 		f"[Progress] Assigning station membership to "
 		f"{graph.number_of_nodes():,} graph nodes..."
@@ -1200,6 +1232,36 @@ def station_nodes_from_retained_platforms(graph):
 		node: set(graph.nodes[node].get("platform_stations", set()))
 		for node in graph.nodes
 	}
+	non_station_nodes = {
+		node for node, memberships in station_nodes.items() if not memberships
+	}
+	non_station_graph = graph.subgraph(non_station_nodes)
+	for component in nx.connected_components(non_station_graph):
+		station_endpoints = defaultdict(set)
+		for node in component:
+			for neighbor in graph.neighbors(node):
+				if graph.nodes[neighbor].get("retained_for", set()) & {
+					"platform_end", "station_boundary"
+				}:
+					for station_name in station_nodes.get(neighbor, set()):
+						station_endpoints[station_name].add(neighbor)
+		for station_name, endpoints in station_endpoints.items():
+			if len(endpoints) >= 2:
+				min_x = min(node[0] for node in component)
+				max_x = max(node[0] for node in component)
+				min_y = min(node[1] for node in component)
+				max_y = max(node[1] for node in component)
+				diameter = math.hypot(
+					max_x - min_x,
+					max_y - min_y,
+				)
+				if diameter > MAX_STATION_COMPONENT_DIAMETER_M:
+					continue
+				for node in component:
+					station_nodes[node].add(station_name)
+					graph.nodes[node].setdefault(
+						"platform_stations", set()
+					).add(station_name)
 	print(f"[Progress] Assigned station membership to {len(station_nodes):,} nodes.")
 	return station_nodes
 
@@ -1249,18 +1311,48 @@ def station_nodes_from_platforms(
 	return station_nodes
 
 
-def assign_station_edges(graph, station_nodes):
-	"""Assign edges whose endpoints belong to one station."""
+def assign_station_edges(
+	graph,
+	station_nodes,
+	data=None,
+	platform_station_names_by_index=None,
+):
+	"""Assign station edges and annotate edges running beside one platform."""
+	platforms_by_station = defaultdict(list)
+	if data is not None and platform_station_names_by_index is not None:
+		for index, platform in data[data["railway"].eq("platform")].iterrows():
+			station_name = platform_station_names_by_index.get(index)
+			if not station_name or station_name == "None":
+				continue
+			number = (
+				platform.get("local_ref")
+				or platform.get("ref")
+				or platform.get("name")
+			)
+			if number is None or str(number).strip().lower() == "nan":
+				number = str(len(platforms_by_station[station_name]) + 1)
+			platforms_by_station[station_name].append((
+				platform.geometry,
+				str(number).strip(),
+			))
+
 	for first, second, edge_data in graph.edges(data=True):
 		common_stations = (
 			station_nodes.get(first, set())
 			& station_nodes.get(second, set())
 		)
-		edge_data["station"] = (
-			next(iter(common_stations))
-			if len(common_stations) == 1
-			else "None"
-		)
+		edge_data["station"] = next(iter(common_stations), "None")
+		edge_data.pop("platform_number", None)
+		if len(common_stations) != 1:
+			continue
+		station_name = next(iter(common_stations))
+		edge_geometry = LineString(edge_data.get("geometry", []))
+		nearby_platforms = [
+			number for platform, number in platforms_by_station[station_name]
+			if edge_geometry.distance(platform) <= PLATFORM_END_DISTANCE_M
+		]
+		if nearby_platforms:
+			edge_data["platform_number"] = nearby_platforms[0]
 
 
 def connected_station_names(graph, nodes, station_nodes):
@@ -1380,6 +1472,12 @@ def valid_station_pair_edges(graph, station_nodes, first_station, second_station
 
 def build_station_sections(graph, station_nodes):
 	"""Build all angle-valid station-to-station sections in one traversal."""
+	def is_station_endpoint(node):
+		return bool(
+			graph.nodes[node].get("retained_for", set())
+			& {"platform_end", "station_boundary"}
+		)
+
 	directed_edges = []
 	directions = {}
 	for first, second, edge_key, edge_data in graph.edges(
@@ -1403,14 +1501,14 @@ def build_station_sections(graph, station_nodes):
 	for previous, current, edge_key, edge_data in directed_edges:
 		state = (previous, current, edge_key)
 		current_stations = station_nodes.get(current, set())
-		if current_stations:
+		if current_stations and not is_station_endpoint(current):
 			continue
 		incoming_direction = directions.get(state)
 		if incoming_direction is not None:
 			incoming_direction = (
 				-incoming_direction[0],
 				-incoming_direction[1],
-		 	)
+			)
 		for neighbor, edge_keys in graph[current].items():
 			neighbor_stations = station_nodes.get(neighbor, set())
 			for next_key, next_data in edge_keys.items():
@@ -1425,11 +1523,11 @@ def build_station_sections(graph, station_nodes):
 				)
 				if angle <= math.radians(90):
 					continue
-				if neighbor_stations:
+				if neighbor_stations and is_station_endpoint(neighbor):
 					terminal_targets.setdefault(state, []).append(
 						(next_state, neighbor_stations)
 					)
-				else:
+				elif not neighbor_stations:
 					transitions.setdefault(state, []).append(next_state)
 
 	reverse_transitions = {}
@@ -1483,35 +1581,81 @@ def build_station_sections(graph, station_nodes):
 		for node, memberships in station_nodes.items():
 			if station_name not in memberships:
 				continue
+			if not is_station_endpoint(node):
+				continue
 			for neighbor, edge_keys in graph[node].items():
-				if station_nodes.get(neighbor, set()):
+				neighbor_stations = station_nodes.get(neighbor, set())
+				if neighbor_stations and neighbor_stations != {station_name}:
 					continue
 				for edge_key in edge_keys:
 					start_states.add((node, neighbor, edge_key))
 
+		station_transitions = {}
+		station_terminal_targets = {}
 		reachable = set(start_states)
 		queue = deque(start_states)
 		while queue:
 			state = queue.popleft()
-			for next_state in transitions.get(state, []):
+			previous, current, edge_key = state
+			current_stations = station_nodes.get(current, set())
+			if current_stations and current_stations != {station_name}:
+				continue
+			incoming_direction = directions.get(state)
+			if incoming_direction is None:
+				continue
+			incoming_direction = (
+				-incoming_direction[0],
+				-incoming_direction[1],
+			)
+			for neighbor, edge_keys in graph[current].items():
+				neighbor_stations = station_nodes.get(neighbor, set())
+				for next_key, next_data in edge_keys.items():
+					next_state = (current, neighbor, next_key)
+					outgoing_direction = directions.get(next_state)
+					if outgoing_direction is None:
+						continue
+					angle = angle_between_vectors(
+						(0, 0),
+						incoming_direction,
+						outgoing_direction,
+					)
+					if angle <= math.radians(90):
+						continue
+					if neighbor_stations and is_station_endpoint(neighbor):
+						for target_station in neighbor_stations:
+							if target_station != station_name:
+								station_terminal_targets.setdefault(
+									state, []
+								).append((
+									next_state,
+									target_station,
+								))
+						continue
+					if (
+						neighbor_stations
+						and neighbor_stations != {station_name}
+					):
+						continue
+					station_transitions.setdefault(state, []).append(
+						next_state
+					)
+			for next_state in station_transitions.get(state, []):
 				if next_state not in reachable:
 					reachable.add(next_state)
 					queue.append(next_state)
 
 		terminal_states = set()
 		for state in reachable:
-			for next_state, target_stations in terminal_targets.get(
+			for next_state, target_station in station_terminal_targets.get(
 				state, []
 			):
-				for target_station in target_stations:
-					if target_station != station_name:
-						pair = tuple(sorted((station_name, target_station)))
-						if pair in allowed_pairs:
-							terminal_states.add((
-								state,
-								next_state,
-								target_station,
-							))
+				pair = tuple(sorted((station_name, target_station)))
+				if pair in allowed_pairs:
+					terminal_states.add((
+						state,
+						next_state,
+						target_station,
+					))
 		if not terminal_states:
 			continue
 
@@ -1529,7 +1673,17 @@ def build_station_sections(graph, station_nodes):
 			queue = deque(target_states)
 			while queue:
 				state = queue.popleft()
-				for previous_state in reverse_transitions.get(state, []):
+				reverse_station_transitions = {}
+				for source_state, next_states in (
+					station_transitions.items()
+				):
+					for next_state in next_states:
+						reverse_station_transitions.setdefault(
+							next_state, []
+						).append(source_state)
+				for previous_state in reverse_station_transitions.get(
+					state, []
+				):
 					if previous_state in reachable and previous_state not in valid_states:
 						valid_states.add(previous_state)
 						queue.append(previous_state)
@@ -1834,8 +1988,10 @@ def write_station_outputs(graph, station_nodes, output_folder=OUTPUT_STATION_FOL
 	})
 	nodes_by_station = {station_name: set() for station_name in station_names}
 	for node, memberships in station_nodes.items():
-		for station_name in memberships:
-			nodes_by_station[station_name].add(node)
+		if len(memberships) != 1:
+			continue
+		station_name = next(iter(memberships))
+		nodes_by_station[station_name].add(node)
 	non_station_graph = nx.MultiGraph()
 	for first, second, edge_key, edge_data in graph.edges(
 		keys=True, data=True
@@ -1861,6 +2017,13 @@ def write_station_outputs(graph, station_nodes, output_folder=OUTPUT_STATION_FOL
 		)
 		nodes = nodes_by_station[station_name]
 		station_graph_nodes = set(nodes)
+		for first, second, edge_key, edge_data in graph.edges(
+			keys=True, data=True
+		):
+			if edge_data.get("station") == station_name and (
+				first in station_graph_nodes or second in station_graph_nodes
+			):
+				nodes.update((first, second))
 		extra_components = station_only_components.get(station_name, [])
 		extra_nodes = set().union(*extra_components) if extra_components else set()
 		nodes.update(extra_nodes)
@@ -1902,6 +2065,8 @@ def write_station_outputs(graph, station_nodes, output_folder=OUTPUT_STATION_FOL
 					reverse_identifier = (neighbor, node, edge_key)
 					if identifier in seen_edges or reverse_identifier in seen_edges:
 						continue
+					if edge_data.get("station") != station_name:
+						continue
 					seen_edges.add(identifier)
 					geometry = edge_data.get("geometry")
 					if geometry:
@@ -1909,6 +2074,12 @@ def write_station_outputs(graph, station_nodes, output_folder=OUTPUT_STATION_FOL
 						records.append({
 							"feature_type": "track",
 							"station": station_name,
+							**({
+								"platform_number": edge_data[
+									"platform_number"
+								]
+							} if edge_data.get("platform_number") is not None
+							else {}),
 							"geometry": LineString(geometry),
 							**geojson_attribute_properties(edge_attributes),
 							"source_index": edge_data.get("source_index"),
@@ -1925,6 +2096,9 @@ def write_station_outputs(graph, station_nodes, output_folder=OUTPUT_STATION_FOL
 				records.append({
 					"feature_type": "track",
 					"station": "None",
+					**({
+						"platform_number": edge_data["platform_number"]
+					} if edge_data.get("platform_number") is not None else {}),
 					"geometry": LineString(geometry),
 					**geojson_attribute_properties(
 						edge_data.get("attributes", {})
@@ -1932,6 +2106,32 @@ def write_station_outputs(graph, station_nodes, output_folder=OUTPUT_STATION_FOL
 					"source_index": edge_data.get("source_index"),
 					"length_m": edge_data.get("length_m"),
 				})
+		track_endpoints = {
+			tuple(coordinate)
+			for record in records
+			if record["feature_type"] == "track"
+			for coordinate in (
+				list(record["geometry"].coords)[0],
+				list(record["geometry"].coords)[-1],
+			)
+		}
+		records = [
+			record for record in records
+			if record["feature_type"] == "track"
+			or any(
+				tuple(coordinate) in track_endpoints
+				for coordinate in (
+					record["geometry"].coords[0],
+					record["geometry"].coords[-1],
+				)
+			)
+		]
+		if not records:
+			print(
+				f"[Progress] Skipping empty station GeoJSON for "
+				f"{station_name}."
+			)
+			continue
 		output_path = os.path.join(
 			output_folder,
 			f"{safe_filename(station_name)}.geojson",
@@ -1978,6 +2178,29 @@ def write_between_station_outputs(
 			for first, second, edge_key in unique_edges
 			for node in (first, second)
 		}
+		unique_edges = {
+			(first, second, edge_key)
+			for first, second, edge_key in unique_edges
+			if (
+				graph[first][second][edge_key].get("station", "None")
+				== "None"
+				or graph[first][second][edge_key].get("station", "None")
+				in {first_station, second_station}
+			)
+			and not any(
+				graph.nodes[node].get("nearest_station") not in (
+					None,
+					first_station,
+					second_station,
+				)
+				for node in (first, second)
+			)
+		}
+		section_nodes = {
+			node
+			for first, second, edge_key in unique_edges
+			for node in (first, second)
+		}
 
 		features = []
 		for node in section_nodes:
@@ -2017,6 +2240,9 @@ def write_between_station_outputs(
 			features.append({
 				"feature_type": "track",
 				"station": edge_data.get("station", "None"),
+				**({
+					"platform_number": edge_data["platform_number"]
+				} if edge_data.get("platform_number") is not None else {}),
 				"geometry": LineString(geometry),
 				**geojson_attribute_properties(
 					edge_data.get("attributes", {})
@@ -2025,6 +2251,8 @@ def write_between_station_outputs(
 				"length_m": edge_data.get("length_m"),
 			})
 
+		if not features:
+			continue
 		name = "__".join((
 			safe_filename(first_station),
 			safe_filename(second_station),
@@ -2101,7 +2329,12 @@ def build_graph(input_file=INPUT_FILE):
 		f"nodes and {graph.number_of_edges():,} edges."
 	)
 	station_nodes = station_nodes_from_retained_platforms(graph)
-	assign_station_edges(graph, station_nodes)
+	assign_station_edges(
+		graph,
+		station_nodes,
+		filtered_data,
+		platform_station_names_by_index,
+	)
 	for node, memberships in station_nodes.items():
 		graph.nodes[node]["station"] = ", ".join(sorted(memberships)) or "None"
 	write_redefined_network_map(graph)

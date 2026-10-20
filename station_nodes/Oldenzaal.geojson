@@ -1,9 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": ".geojson__kn23igo",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Oldenzaal", "retained_for": "platform_end", "nearest_station": "Oldenzaal", "nearest_station_distance_m": 82.365281205469117, "nearest_platform": "333", "nearest_platform_distance_m": 3.9999905869920802, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 6.932834563979469, 52.306162858847308 ] } },
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Oldenzaal", "retained_for": "platform_end", "nearest_station": "Oldenzaal", "nearest_station_distance_m": 82.808626400061982, "nearest_platform": "333", "nearest_platform_distance_m": 4.0000075560205666, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 6.932821621444786, 52.306216980714602 ] } }
-]
-}

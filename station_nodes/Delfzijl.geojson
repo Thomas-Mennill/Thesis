@@ -1,8 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": ".geojson_c0b8uj_c",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Delfzijl", "retained_for": "platform_end", "nearest_station": "Delfzijl", "nearest_station_distance_m": 136.57539557392946, "nearest_platform": "326", "nearest_platform_distance_m": 3.9999953519140057, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 6.92169531944104, 53.333612491645262 ] } }
-]
-}

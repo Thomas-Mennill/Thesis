@@ -1,9 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": ".geojson_vhn46rg_",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Eijsden", "retained_for": "platform_end", "nearest_station": "Eijsden", "nearest_station_distance_m": 4.4392244774983407, "nearest_platform": "1325", "nearest_platform_distance_m": 4.0000021562511909, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 5.710016212253715, 50.772049503304537 ] } },
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Eijsden", "retained_for": "platform_end", "nearest_station": "Eijsden", "nearest_station_distance_m": 3.2310636050659132, "nearest_platform": "680", "nearest_platform_distance_m": 4.0000031026909157, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 5.710115674639553, 50.772028173342157 ] } }
-]
-}

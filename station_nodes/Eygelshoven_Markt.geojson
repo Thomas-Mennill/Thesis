@@ -1,8 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": ".geojson_j72vuk37",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Eygelshoven Markt", "retained_for": "platform_end", "nearest_station": "Eygelshoven Markt", "nearest_station_distance_m": 82.533497858782425, "nearest_platform": "682", "nearest_platform_distance_m": 4.0000021852874887, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 6.056627309966869, 50.896048483326339 ] } }
-]
-}

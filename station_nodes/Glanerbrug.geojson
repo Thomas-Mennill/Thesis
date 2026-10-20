@@ -1,8 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": ".geojson__fjdz2q_",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "feature_type": "node", "station": "Glanerbrug", "retained_for": "platform_end", "nearest_station": "Glanerbrug", "nearest_station_distance_m": 28.783666303220521, "nearest_platform": "768", "nearest_platform_distance_m": 4.0000021959050249, "source_attributes": { }, "source_index": null }, "geometry": { "type": "Point", "coordinates": [ 6.973699929920049, 52.218719387346688 ] } }
-]
-}
