@@ -1,4 +1,4 @@
-"""Construct shortest feasible train routes from required track segments."""
+"""Construct shortest feasible train routes from required track edges."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import argparse
 from pathlib import Path
 
 import networkx as nx
+from shapely.geometry import Point
 
 
 def load_route_station_stops(csv_file="rail_routes.csv"):
@@ -21,10 +22,10 @@ def load_route_station_stops(csv_file="rail_routes.csv"):
         raise ValueError(f"Route file {csv_file!r} is empty")
 
     station_stops = {}
-    for column in range(1, len(rows[0]), 4):
-        train_id = rows[0][column].strip()
-        if not train_id or train_id.lower() == "time":
+    for column, header in enumerate(rows[0]):
+        if not header.strip().isdigit():
             continue
+        train_id = rows[0][column].strip()
         try:
             train_number = int(train_id)
         except ValueError as error:
@@ -41,6 +42,22 @@ def load_route_station_stops(csv_file="rail_routes.csv"):
         station_stops[train_number] = stops
     if not station_stops:
         raise ValueError(f"No train station stops found in {csv_file!r}")
+    return station_stops
+
+
+def load_route_station_stops_files(*csv_files):
+    """Merge station stops from multiple timetable CSV files."""
+    if not csv_files:
+        raise ValueError("At least one station-stop CSV file is required")
+    station_stops = {}
+    for csv_file in csv_files:
+        for train_id, stops in load_route_station_stops(csv_file).items():
+            if train_id in station_stops:
+                raise ValueError(
+                    f"Train ID {train_id} appears in multiple station-stop "
+                    f"files"
+                )
+            station_stops[train_id] = stops
     return station_stops
 
 
@@ -63,11 +80,11 @@ def _parse_integer_list(value, *, field_name):
     return values
 
 
-def load_rail_routes(csv_file="required_segments.csv"):
+def load_rail_routes(csv_file="required_edges.csv"):
     """Load route definitions from the column-oriented route CSV.
 
     The first row of each column contains one or more train IDs. Non-empty
-    cells below it contain the segment IDs required by those trains.
+    cells below it contain the edge IDs required by those trains.
     """
     with Path(csv_file).open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.reader(handle))
@@ -78,30 +95,36 @@ def load_rail_routes(csv_file="required_segments.csv"):
     routes = []
     for column in range(width):
         header = rows[0][column].strip() if column < len(rows[0]) else ""
-        if not header:
-            continue
-        train_ids = _parse_integer_list(
-            header, field_name=f"column {column + 1} header"
-        )
-        segment_ids = []
+        if header:
+            try:
+                train_ids = _parse_integer_list(
+                    header, field_name=f"column {column + 1} header"
+                )
+            except ValueError:
+                if column != 0 or header.casefold() != "edges":
+                    raise
+                train_ids = [column + 1]
+        else:
+            train_ids = [column + 1]
+        edge_ids = []
         for row in rows[1:]:
             if column < len(row) and row[column].strip():
-                segment_ids.extend(
+                edge_ids.extend(
                     _parse_integer_list(
                         row[column],
                         field_name=f"column {column + 1}",
                     )
                 )
-        if not segment_ids:
+        if not edge_ids:
             raise ValueError(
-                f"Route column {column + 1} has no required segments"
+                f"Route column {column + 1} has no required edges"
             )
-        required_segments = tuple(dict.fromkeys(segment_ids))
+        required_edges = tuple(dict.fromkeys(edge_ids))
         for train_id in train_ids:
             routes.append({
                 "train_id": train_id,
                 "route_column": column + 1,
-                "required_segments": required_segments,
+                "required_edges": required_edges,
             })
     if not routes:
         raise ValueError("No routes were found in the CSV")
@@ -122,7 +145,7 @@ def _edge_length(first, second, attributes):
     return total
 
 
-def _segment_lengths(network_graph):
+def _edge_lengths(network_graph):
     lengths = {}
     for first, second, key, attributes in network_graph.edges(
         keys=True, data=True
@@ -136,92 +159,119 @@ def _segment_lengths(network_graph):
     return lengths
 
 
-def _junction_angle(first, current, next_node):
-    """Return the angle between incoming and outgoing travel directions."""
-    incoming = (first[0] - current[0], first[1] - current[1])
-    outgoing = (next_node[0] - current[0], next_node[1] - current[1])
-    incoming_length = math.hypot(*incoming)
-    outgoing_length = math.hypot(*outgoing)
-    if not incoming_length or not outgoing_length:
+def _edge_direction_from_node(attributes, node):
+    """Return direction to the geometry point immediately beside ``node``."""
+    coordinates = list(attributes.get("geometry", []))
+    if len(coordinates) < 2:
+        return None
+    node_point = Point(node)
+    if node_point.distance(Point(coordinates[0])) <= node_point.distance(
+        Point(coordinates[-1])
+    ):
+        adjacent_point = coordinates[1]
+    else:
+        adjacent_point = coordinates[-2]
+    vector = (
+        adjacent_point[0] - node[0],
+        adjacent_point[1] - node[1],
+    )
+    length = math.hypot(*vector)
+    if length == 0:
+        return None
+    return vector[0] / length, vector[1] / length
+
+
+def _angle_between_vectors(center, first, second):
+    """Return the angle in radians between two links sharing center."""
+    first_vector = (first[0] - center[0], first[1] - center[1])
+    second_vector = (second[0] - center[0], second[1] - center[1])
+    first_length = math.hypot(*first_vector)
+    second_length = math.hypot(*second_vector)
+    if first_length == 0 or second_length == 0:
+        return math.pi
+    cosine = (
+        first_vector[0] * second_vector[0]
+        + first_vector[1] * second_vector[1]
+    ) / (first_length * second_length)
+    return math.acos(max(-1.0, min(1.0, cosine)))
+
+
+def _junction_angle(incoming_attributes, current, outgoing_attributes):
+    """Return the angle between outward edge directions at a junction."""
+    incoming = _edge_direction_from_node(incoming_attributes, current)
+    outgoing = _edge_direction_from_node(outgoing_attributes, current)
+    if incoming is None or outgoing is None:
         return 0.0
-    cosine = sum(a * b for a, b in zip(incoming, outgoing))
-    cosine /= incoming_length * outgoing_length
-    return math.degrees(math.acos(max(-1.0, min(1.0, cosine))))
+    return math.degrees(
+        _angle_between_vectors((0, 0), incoming, outgoing)
+    )
 
 
-def _segment_edges(segment_graph):
-    """Index segment-graph edges by segment ID."""
+def _network_edges(network_graph):
+    """Index network edges by their stable edge ID."""
     indexed = {}
-    for first, second, key, attributes in segment_graph.edges(
+    for first, second, key, attributes in network_graph.edges(
         keys=True, data=True
     ):
-        segment_id = attributes.get("segment_id")
-        if segment_id is None:
+        edge_id = attributes.get("edge_id")
+        if edge_id is None:
             raise ValueError(
-                f"Segment graph edge {(first, second, key)!r} has no segment_id"
+                f"Network edge {(first, second, key)!r} has no edge_id"
             )
-        indexed.setdefault(segment_id, []).append(
+        indexed.setdefault(str(edge_id), []).append(
             (first, second, key, attributes)
         )
     return indexed
 
 
-def _shortest_route_for_segments(
-    segment_graph,
+def _shortest_route_for_edges(
     network_graph,
-    required_segments,
+    required_edges,
     minimum_junction_angle=90.0,
     heuristic_weight=2.0,
 ):
-    """Find a feasible route with weighted A* search.
-
-    The route starts at either endpoint of an edge carrying the first required
-    segment. A turn through a node is allowed only when its angle is strictly
-    greater than ``minimum_junction_angle``. A weight above one prioritizes
-    routes that appear closer to the remaining required segments and can
-    reduce runtime at the cost of strict shortest-path optimality.
-    """
+    """Find a feasible route through the required network edges in order."""
     if heuristic_weight < 1.0:
         raise ValueError("heuristic_weight must be at least 1")
-    segment_edges = _segment_edges(segment_graph)
-    segment_lengths = _segment_lengths(network_graph)
-    missing = set(required_segments) - set(segment_edges)
+    edge_index = _network_edges(network_graph)
+    edge_lengths = _edge_lengths(network_graph)
+    required = tuple(str(edge_id) for edge_id in required_edges)
+    if not required:
+        raise ValueError("At least one required edge is needed")
+    missing = set(required) - set(edge_index)
     if missing:
-        raise ValueError(f"Required segments are absent: {sorted(missing)}")
-    missing_lengths = set(required_segments) - set(segment_lengths)
+        raise ValueError(f"Required edges are absent: {sorted(missing)}")
+    missing_lengths = set(required) - set(edge_lengths)
     if missing_lengths:
         raise ValueError(
-            f"Required segments have no network geometry: "
+            f"Required edges have no network geometry: "
             f"{sorted(missing_lengths)}"
         )
 
-    required = tuple(required_segments)
-    if not required:
-        raise ValueError("At least one required segment is needed")
-    segment_endpoints = {
-        segment_id: {
+    edge_endpoints = {
+        edge_id: {
             endpoint
             for first, second, _key, _attributes
-            in segment_edges[segment_id]
+            in edge_index[edge_id]
             for endpoint in (first, second)
         }
-        for segment_id in required
+        for edge_id in required
     }
 
     def heuristic(current, next_index):
-        """Lower-bound travel to the next required segment."""
+        """Lower-bound travel to the next required edge."""
         if next_index >= len(required):
             return 0.0
         return min(
             _edge_length(current, endpoint, {})
-            for segment_id in required[next_index:]
-            for endpoint in segment_endpoints[segment_id]
+            for edge_id in required[next_index:]
+            for endpoint in edge_endpoints[edge_id]
         )
 
     queue = []
     best = {}
     previous_states = {}
-    initial_segments = {}
+    initial_edges = {}
     counter = 0
 
     def reconstruct_route(state, distance):
@@ -230,10 +280,10 @@ def _shortest_route_for_segments(
             state_path.append(previous_states[state_path[-1]][0])
         state_path.reverse()
         route_nodes = [state_path[0][0], state_path[0][1]]
-        segment_ids = [initial_segments[state_path[0]]]
+        edge_ids = [initial_edges[state_path[0]]]
         for route_state in state_path[1:]:
             route_nodes.append(route_state[1])
-            segment_ids.append(previous_states[route_state][1])
+            edge_ids.append(previous_states[route_state][1])
         nodes = [
             {
                 "node_id": network_graph.nodes[node].get("node_id"),
@@ -241,23 +291,23 @@ def _shortest_route_for_segments(
             }
             for node in route_nodes
         ]
-        covered_count = state[2]
+        covered_count = state[3]
         return {
             "nodes": nodes,
             "node_coordinates": route_nodes,
-            "segment_ids": segment_ids,
+            "edge_ids": edge_ids,
             "length_meters": distance,
             "complete": covered_count == len(required),
-            "covered_required_segments": list(required[:covered_count]),
+            "covered_required_edges": list(required[:covered_count]),
         }
 
-    for first, second, key, attributes in segment_edges[required_segments[0]]:
+    for first, second, key, attributes in edge_index[required[0]]:
         for start, next_node in ((first, second), (second, first)):
-            segment_id = attributes["segment_id"]
-            edge_length = segment_lengths[segment_id]
-            state = (start, next_node, 1)
+            edge_id = str(attributes["edge_id"])
+            edge_length = edge_lengths[edge_id]
+            state = (start, next_node, key, 1)
             best[state] = edge_length
-            initial_segments[state] = segment_id
+            initial_edges[state] = edge_id
             heapq.heappush(
                 queue,
                 (
@@ -275,12 +325,12 @@ def _shortest_route_for_segments(
         _priority, _, distance, state = heapq.heappop(queue)
         if distance != best.get(state):
             continue
-        previous, current, next_index = state
+        previous, current, incoming_key, next_index = state
         if (
             best_partial_state is None
-            or next_index > best_partial_state[2]
+            or next_index > best_partial_state[3]
             or (
-                next_index == best_partial_state[2]
+                next_index == best_partial_state[3]
                 and distance < best_partial_distance
             )
         ):
@@ -288,25 +338,34 @@ def _shortest_route_for_segments(
             best_partial_distance = distance
         if next_index == len(required):
             return reconstruct_route(state, distance)
-        for next_node in segment_graph.neighbors(current):
+        for next_node in network_graph.neighbors(current):
             if next_node == previous:
                 continue
-            if segment_graph.degree(current) > 2 and _junction_angle(
-                previous, current, next_node
-            ) <= minimum_junction_angle:
-                continue
-            for key, attributes in segment_graph[current][next_node].items():
-                segment_id = attributes["segment_id"]
+            for key, attributes in network_graph[current][next_node].items():
+                if network_graph.degree(current) > 2:
+                    incoming_attributes = network_graph[previous][current][
+                        incoming_key
+                    ]
+                    if _junction_angle(
+                        incoming_attributes,
+                        current,
+                        attributes,
+                    ) <= minimum_junction_angle:
+                        continue
+                edge_id = str(attributes["edge_id"])
                 new_index = next_index
-                if segment_id in required:
-                    if segment_id != required[next_index]:
+                if edge_id in required:
+                    if (
+                        next_index >= len(required)
+                        or edge_id != required[next_index]
+                    ):
                         continue
                     new_index += 1
-                new_distance = distance + segment_lengths[segment_id]
-                new_state = (current, next_node, new_index)
+                new_distance = distance + edge_lengths[edge_id]
+                new_state = (current, next_node, key, new_index)
                 if new_distance < best.get(new_state, math.inf):
                     best[new_state] = new_distance
-                    previous_states[new_state] = (state, segment_id)
+                    previous_states[new_state] = (state, edge_id)
                     heapq.heappush(
                         queue,
                         (
@@ -321,54 +380,50 @@ def _shortest_route_for_segments(
                     counter += 1
     if best_partial_state is None:
         raise ValueError(
-            f"No route can start with segment {required[0]}"
+            f"No route can start with edge {required[0]}"
         )
     partial_route = reconstruct_route(
         best_partial_state,
         best_partial_distance,
     )
-    partial_route["uncovered_required_segments"] = list(
-        required[best_partial_state[2]:]
+    partial_route["uncovered_required_edges"] = list(
+        required[best_partial_state[3]:]
     )
     return partial_route
 
 
 def assign_routes(
     routes,
-    segment_graph_file="case_study_segment_graph.pkl",
     network_graph_file="case_study_network.gpickle",
     minimum_junction_angle=90.0,
     heuristic_weight=2.0,
 ):
     """Assign the shortest feasible track route to every train definition.
 
-    If all required segments cannot be covered in order, the best partial
+    If all required edges cannot be covered in order, the best partial
     route is returned and displayed instead of aborting the remaining routes.
     """
     if not 0.0 <= minimum_junction_angle < 180.0:
         raise ValueError("minimum_junction_angle must be between 0 and 180")
-    with Path(segment_graph_file).open("rb") as handle:
-        segment_graph = pickle.load(handle)
     with Path(network_graph_file).open("rb") as handle:
         network_graph = pickle.load(handle)
 
     assignments = []
     for route in routes:
-        required = tuple(route["required_segments"])
-        assignment = _shortest_route_for_segments(
-            segment_graph,
+        required = tuple(route["required_edges"])
+        assignment = _shortest_route_for_edges(
             network_graph,
             required,
             minimum_junction_angle,
             heuristic_weight,
         )
         if not assignment["complete"]:
-            covered = assignment["covered_required_segments"]
+            covered = assignment["covered_required_edges"]
             print(
-                f"No feasible route covers all required segments for train "
+                f"No feasible route covers all required edges for train "
                 f"{route['train_id']}. Best partial route covers "
-                f"{len(covered)}/{len(required)} required segments: "
-                f"{assignment['segment_ids']}"
+                f"{len(covered)}/{len(required)} required edges: "
+                f"{assignment['edge_ids']}"
             )
             print(f"  Nodes: {assignment['nodes']}")
         assignments.append({**route, **assignment})
@@ -383,16 +438,16 @@ def build_route_graphs(assignments, network_graph_file):
     route_graphs = {}
     for assignment in assignments:
         train_id = assignment["train_id"]
-        segment_ids = set(assignment["segment_ids"])
+        edge_ids = set(assignment["edge_ids"])
         route_graph = network_graph.__class__()
         route_graph.graph.update(copy.deepcopy(network_graph.graph))
         route_graph.graph.update({
             "train_id": train_id,
             "route_column": assignment.get("route_column"),
-            "required_segments": list(
-                assignment.get("required_segments", ())
+            "required_edges": list(
+                assignment.get("required_edges", ())
             ),
-            "assigned_segments": list(assignment["segment_ids"]),
+            "assigned_edges": list(assignment["edge_ids"]),
             "route_node_coordinates": copy.deepcopy(
                 assignment.get("node_coordinates", ())
             ),
@@ -402,7 +457,7 @@ def build_route_graphs(assignments, network_graph_file):
         for first, second, key, attributes in network_graph.edges(
             keys=True, data=True
         ):
-            if attributes.get("segment_id") not in segment_ids:
+            if str(attributes.get("edge_id")) not in edge_ids:
                 continue
             route_graph.add_node(first, **copy.deepcopy(network_graph.nodes[first]))
             route_graph.add_node(second, **copy.deepcopy(network_graph.nodes[second]))
@@ -435,7 +490,7 @@ def build_station_graph(route_graphs, station_stops_by_train=None):
 
     for train_id, route_graph in route_graphs.items():
         route_nodes = route_graph.graph.get("route_node_coordinates", ())
-        assigned_segments = route_graph.graph.get("assigned_segments", ())
+        assigned_edges = route_graph.graph.get("assigned_edges", ())
         station_events = []
         for node_index, node in enumerate(route_nodes):
             station = route_graph.nodes[node].get("station")
@@ -460,10 +515,10 @@ def build_station_graph(route_graphs, station_stops_by_train=None):
         ):
             if origin == destination:
                 continue
-            segment_ids = list(
-                assigned_segments[origin_index:destination_index]
+            edge_ids = list(
+                assigned_edges[origin_index:destination_index]
             )
-            connection_key = (origin, destination, tuple(segment_ids))
+            connection_key = (origin, destination, tuple(edge_ids))
             edge_key = connection_edges.get(connection_key)
             if edge_key is None:
                 edge_key = station_graph.add_edge(
@@ -472,7 +527,7 @@ def build_station_graph(route_graphs, station_stops_by_train=None):
                     train_id=train_id,
                     train_ids=[train_id],
                     route_node_indices=(origin_index, destination_index),
-                    segment_ids=segment_ids,
+                    edge_ids=edge_ids,
                 )
                 connection_edges[connection_key] = edge_key
             else:
@@ -483,38 +538,40 @@ def build_station_graph(route_graphs, station_stops_by_train=None):
     return station_graph
 
 
-def _ordered_route_nodes_and_segments(route_graph):
-    """Return the traversed infrastructure nodes and segment IDs in order."""
+def _ordered_route_nodes_and_edges(route_graph):
+    """Return the traversed infrastructure nodes and edge IDs in order."""
     route_nodes = route_graph.graph.get("route_node_coordinates", ())
-    assigned_segments = route_graph.graph.get("assigned_segments", ())
+    assigned_edges = route_graph.graph.get("assigned_edges", ())
     ordered_nodes = []
-    ordered_segment_ids = []
+    ordered_edge_ids = []
 
-    for segment_index, segment_id in enumerate(assigned_segments):
-        if segment_index + 1 >= len(route_nodes):
+    for edge_index, edge_id in enumerate(assigned_edges):
+        if edge_index + 1 >= len(route_nodes):
             break
-        start = route_nodes[segment_index]
-        end = route_nodes[segment_index + 1]
-        segment_graph = nx.MultiGraph()
-        for first, second, key, attributes in route_graph.edges(
-            keys=True, data=True
+        start = route_nodes[edge_index]
+        end = route_nodes[edge_index + 1]
+        matching_edges = [
+            (first, second, key)
+            for first, second, key, attributes in route_graph.edges(
+                keys=True, data=True
+            )
+            if str(attributes.get("edge_id")) == str(edge_id)
+        ]
+        if not matching_edges:
+            continue
+        if not any(
+            {first, second} == {start, end}
+            for first, second, _key in matching_edges
         ):
-            if attributes.get("segment_id") == segment_id:
-                segment_graph.add_edge(first, second, key=key)
-        if start not in segment_graph or end not in segment_graph:
             continue
-        try:
-            path = nx.shortest_path(segment_graph, start, end)
-        except nx.NetworkXNoPath:
-            continue
-        if ordered_nodes and path[0] == ordered_nodes[-1]:
-            path = path[1:]
-        if not path:
-            continue
-        ordered_nodes.extend(path)
-        ordered_segment_ids.extend([segment_id] * (len(path) - 1))
+        if not ordered_nodes:
+            ordered_nodes.append(start)
+        elif ordered_nodes[-1] != start:
+            ordered_nodes.append(start)
+        ordered_nodes.append(end)
+        ordered_edge_ids.append(edge_id)
 
-    return ordered_nodes, ordered_segment_ids
+    return ordered_nodes, ordered_edge_ids
 
 
 def build_station_junction_graph(
@@ -556,7 +613,7 @@ def build_station_junction_graph(
             junction_graph.add_node(node, passing_train_ids=[])
 
     for train_id, route_graph in route_graphs.items():
-        ordered_nodes, ordered_segment_ids = _ordered_route_nodes_and_segments(
+        ordered_nodes, ordered_edge_ids = _ordered_route_nodes_and_edges(
             route_graph
         )
         significant_events = []
@@ -600,8 +657,8 @@ def build_station_junction_graph(
         ):
             if origin == destination:
                 continue
-            segment_ids = ordered_segment_ids[origin_index:destination_index]
-            connection_key = (origin, destination, tuple(segment_ids))
+            edge_ids = ordered_edge_ids[origin_index:destination_index]
+            connection_key = (origin, destination, tuple(edge_ids))
             edge_key = connection_edges.get(connection_key)
             if edge_key is None:
                 edge_key = junction_graph.add_edge(
@@ -610,7 +667,7 @@ def build_station_junction_graph(
                     train_id=train_id,
                     train_ids=[train_id],
                     route_node_indices=(origin_index, destination_index),
-                    segment_ids=list(segment_ids),
+                    edge_ids=list(edge_ids),
                 )
                 connection_edges[connection_key] = edge_key
             else:
@@ -634,27 +691,29 @@ def write_route_graphs(route_graphs, output_file="case_study_route_graphs.pkl"):
 
 
 def assign_routes_from_csv(
-    csv_file="required_segments.csv",
-    segment_graph_file="case_study_segment_graph.pkl",
+    csv_file="required_edges.csv",
     network_graph_file="case_study_network.gpickle",
     minimum_junction_angle=90.0,
     route_graph_output="case_study_route_graphs.pkl",
     station_graph_output="case_study_station_graph.gpickle",
     station_junction_graph_output="case_study_station_junction_graph.gpickle",
-    station_stops_file="rail_routes.csv",
+    existing_station_stops_file="existing_rail_routes.csv",
+    new_station_stops_file="new_rail_routes.csv",
     heuristic_weight=2.0,
 ):
-    """Load rail routes from CSV and return their shortest feasible paths."""
+    """Load edge-based rail routes from CSV and assign feasible paths."""
     assignments = assign_routes(
         load_rail_routes(csv_file),
-        segment_graph_file=segment_graph_file,
         network_graph_file=network_graph_file,
         minimum_junction_angle=minimum_junction_angle,
         heuristic_weight=heuristic_weight,
     )
     route_graphs = build_route_graphs(assignments, network_graph_file)
     write_route_graphs(route_graphs, route_graph_output)
-    station_stops_by_train = load_route_station_stops(station_stops_file)
+    station_stops_by_train = load_route_station_stops_files(
+        existing_station_stops_file,
+        new_station_stops_file,
+    )
     with Path(network_graph_file).open("rb") as handle:
         infrastructure_graph = pickle.load(handle)
     write_station_graph(
@@ -676,11 +735,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Assign shortest feasible routes to trains."
     )
-    parser.add_argument("--routes", default="required_segments.csv")
-    parser.add_argument(
-        "--segment-graph",
-        default="case_study_segment_graph.pkl",
-    )
+    parser.add_argument("--routes", default="required_edges.csv")
     parser.add_argument(
         "--network-graph",
         default="case_study_network.gpickle",
@@ -704,9 +759,14 @@ def main():
         ),
     )
     parser.add_argument(
-        "--station-stops",
-        default="rail_routes.csv",
-        help="Timetable CSV used to assign stopping trains to stations.",
+        "--existing-station-stops",
+        default="existing_rail_routes.csv",
+        help="CSV containing station stops for existing trains.",
+    )
+    parser.add_argument(
+        "--new-station-stops",
+        default="new_rail_routes.csv",
+        help="CSV containing station stops for new trains.",
     )
     parser.add_argument(
         "--minimum-junction-angle",
@@ -729,14 +789,16 @@ def main():
     print(f"Loaded {len(routes):,} train routes from {args.routes}.")
     assignments = assign_routes(
         routes,
-        segment_graph_file=args.segment_graph,
         network_graph_file=args.network_graph,
         minimum_junction_angle=args.minimum_junction_angle,
         heuristic_weight=args.heuristic_weight,
     )
     route_graphs = build_route_graphs(assignments, args.network_graph)
     write_route_graphs(route_graphs, args.output)
-    station_stops_by_train = load_route_station_stops(args.station_stops)
+    station_stops_by_train = load_route_station_stops_files(
+        args.existing_station_stops,
+        args.new_station_stops,
+    )
     with Path(args.network_graph).open("rb") as handle:
         infrastructure_graph = pickle.load(handle)
     station_graph = build_station_graph(route_graphs, station_stops_by_train)

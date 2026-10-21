@@ -1479,18 +1479,11 @@ def build_station_sections(graph, station_nodes):
 		)
 
 	directed_edges = []
-	directions = {}
 	for first, second, edge_key, edge_data in graph.edges(
 		keys=True, data=True
 	):
 		if first == second:
 			continue
-		directions[(first, second, edge_key)] = edge_direction_from_node(
-			edge_data, first
-		)
-		directions[(second, first, edge_key)] = edge_direction_from_node(
-			edge_data, second
-		)
 		directed_edges.extend([
 			(first, second, edge_key, edge_data),
 			(second, first, edge_key, edge_data),
@@ -1503,17 +1496,18 @@ def build_station_sections(graph, station_nodes):
 		current_stations = station_nodes.get(current, set())
 		if current_stations and not is_station_endpoint(current):
 			continue
-		incoming_direction = directions.get(state)
-		if incoming_direction is not None:
-			incoming_direction = (
-				-incoming_direction[0],
-				-incoming_direction[1],
-			)
+		incoming_direction = edge_direction_from_node(
+			edge_data,
+			current,
+		)
 		for neighbor, edge_keys in graph[current].items():
 			neighbor_stations = station_nodes.get(neighbor, set())
 			for next_key, next_data in edge_keys.items():
 				next_state = (current, neighbor, next_key)
-				outgoing_direction = directions.get(next_state)
+				outgoing_direction = edge_direction_from_node(
+					next_data,
+					current,
+				)
 				if incoming_direction is None or outgoing_direction is None:
 					continue
 				angle = angle_between_vectors(
@@ -1600,18 +1594,20 @@ def build_station_sections(graph, station_nodes):
 			current_stations = station_nodes.get(current, set())
 			if current_stations and current_stations != {station_name}:
 				continue
-			incoming_direction = directions.get(state)
+			incoming_direction = edge_direction_from_node(
+				graph[previous][current][edge_key],
+				current,
+			)
 			if incoming_direction is None:
 				continue
-			incoming_direction = (
-				-incoming_direction[0],
-				-incoming_direction[1],
-			)
 			for neighbor, edge_keys in graph[current].items():
 				neighbor_stations = station_nodes.get(neighbor, set())
 				for next_key, next_data in edge_keys.items():
 					next_state = (current, neighbor, next_key)
-					outgoing_direction = directions.get(next_state)
+					outgoing_direction = edge_direction_from_node(
+						next_data,
+						current,
+					)
 					if outgoing_direction is None:
 						continue
 					angle = angle_between_vectors(

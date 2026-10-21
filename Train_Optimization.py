@@ -58,7 +58,7 @@ def load_train_schedule(csv_file):
 		columns=["train_id", "event", "station", "time"],
 	)
 
-def load_train_data(csv_file="train_data.csv"):
+def load_rolling_stock_data(csv_file="rolling_stock_data.csv"):
 	"""Load rolling-stock data into the global ``U`` DataFrame.
 
 	The CSV stores rolling-stock types in columns and their properties in
@@ -70,33 +70,49 @@ def load_train_data(csv_file="train_data.csv"):
 	return U
 
 
-def calculate_braking_times(train_type, train_data=None):
+def calculate_braking_times(train_type, rolling_stock_data=None):
 	"""Return full-stop braking times sampled at 0.1 m/s.
 
 	The returned value at index ``i`` is the time in seconds required to stop
 	from ``i * 0.1`` m/s. Maximum speed is read in km/h and converted
-	to m/s. The braking acceleration from ``train_data`` is assumed to be a
+	to m/s. 	The braking acceleration from ``rolling_stock_data`` is assumed to be a
 	positive constant deceleration.
 	"""
-	if train_data is None:
-		train_data = U
-	if not isinstance(train_data, pd.DataFrame):
-		raise TypeError("train_data must be a pandas DataFrame")
-	if train_type not in train_data.columns:
-		raise KeyError(f"Train type {train_type!r} is not present in train data")
+	if rolling_stock_data is None:
+		rolling_stock_data = U
+	if not isinstance(rolling_stock_data, pd.DataFrame):
+		raise TypeError("rolling_stock_data must be a pandas DataFrame")
+	if train_type not in rolling_stock_data.columns:
+		raise KeyError(
+			f"Train type {train_type!r} is not present in rolling-stock data"
+		)
 
-	required_properties = {"Max Speed (km/h)", "Brake Acceleration (m/s^2)"}
-	missing_properties = required_properties.difference(train_data.index)
+	property_rows = {
+		str(index).strip().casefold().replace("_", " "): index
+		for index in rolling_stock_data.index
+	}
+	required_properties = {
+		"max speed (km/h)": "maximum speed",
+		"brake acceleration (m/s^2)": "brake acceleration",
+	}
+	missing_properties = [
+		label for key, label in required_properties.items()
+		if key not in property_rows
+	]
 	if missing_properties:
 		raise KeyError(
-			"Train data is missing required properties: "
+			"Rolling-stock data is missing required properties: "
 			+ ", ".join(sorted(missing_properties))
 		)
 
 	try:
-		max_speed_kmh = float(train_data.at["Max Speed (km/h)", train_type])
+		max_speed_kmh = float(
+			rolling_stock_data.at[property_rows["max speed (km/h)"], train_type]
+		)
 		brake_acceleration = float(
-			train_data.at["Brake Acceleration (m/s^2)", train_type]
+			rolling_stock_data.at[
+				property_rows["brake acceleration (m/s^2)"], train_type
+			]
 		)
 	except (TypeError, ValueError) as error:
 		raise ValueError(
