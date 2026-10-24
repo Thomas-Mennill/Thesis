@@ -33,6 +33,7 @@ ROLLING_STOCK_DATA_FILE = "rolling_stock_data.csv"
 INFRASTRUCTURE_GRAPH_FILE = "case_study_network.gpickle"
 RESULTS_FILE = "running_time_results.csv"
 NODE_RESULTS_FILE = "running_time_between_nodes.csv"
+BRAKING_TIME_FILE = "braking_times_by_node.csv"
 ROUTE_CSV_FOLDER = "running_time_by_route"
 ROUTE_MAP_FOLDER = "route_speed_maps"
 train_type = "conventional"
@@ -172,11 +173,202 @@ def load_rolling_stock_data(csv_file=ROLLING_STOCK_DATA_FILE):
         )
     return frame, normalized_rows, behaviour_column
 
+    """Numerically calculate braking time from ``speed_limit`` to zero.
 
-def resolve_rolling_stock_attributes(
-    vehicle_type,
-    rolling_stock_data,
-):
+    The braking force is combined with Davis resistance for conventional
+    trains and aerodynamic resistance for maglev trains.
+    """
+    attributes = resolve_rolling_stock_attributes(
+        train_type,
+        rolling_stock_data,
+    )
+    brake_acceleration = attributes.get("brake acceleration (m/s^2)")
+    if brake_acceleration is None or brake_acceleration <= 0:
+        raise ValueError(
+            f"Rolling-stock data for {train_type!r} has no positive "
+            "brake acceleration"
+        )
+    speed_limit = float(speed_limit)
+    if not np.isfinite(speed_limit) or speed_limit < 0:
+        raise ValueError("speed_limit must be finite and non-negative")
+    if not np.isfinite(time_step) or time_step <= 0:
+        raise ValueError("time_step must be finite and positive")
+    if speed_limit == 0:
+        return 0.0
+
+    mass = attributes["mass (kg)"]
+    rotating_factor = attributes.get("rotating mass factor", 1.0)
+    brake_force = brake_acceleration * rotating_factor * mass
+    normalized_type = str(train_type).strip().casefold()
+    if normalized_type == "maglev":
+        required = ("drag coefficient", "width (m)", "height (m)")
+        if any(attributes.get(name) is None for name in required):
+            raise ValueError(
+                f"Maglev type {train_type!r} lacks aerodynamic data"
+            )
+        air_density = 1.204
+        frontal_area = attributes["width (m)"] * attributes["height (m)"]
+
+        def resistance(speed):
+            return calculate_air_resistance(
+                speed,
+                attributes["drag coefficient"],
+                air_density,
+                frontal_area,
+            )
+    else:
+        required = (
+            "constant resistance (n)",
+            "linear resistance (ns/m)",
+            "quadratic resistance (ns^2/m^2)",
+        )
+        if any(attributes.get(name) is None for name in required):
+            raise ValueError(
+                f"Conventional type {train_type!r} lacks Davis resistance data"
+            )
+
+        def resistance(speed):
+            return calculate_davis_resistance(attributes, speed)
+
+    _velocities, _distances, times = get_brake_curve(
+        0,
+        speed_limit,
+        0.0,
+        brake_force,
+        mass,
+        9.81,
+        np.array([0.0]),
+        rotating_factor,
+        resistance,
+        dt=time_step,
+        return_times=True,
+    )
+    return float(times[-1]) if times else 0.0
+    """Return normalized-route nodes at every speed-limit change."""
+    distances = np.asarray(results[7], dtype=float)
+    speed_limits = np.asarray(results[10], dtype=float)
+    change_points = find_speed_limit_changes(speed_limits)
+    return [
+        {
+            "node": index + 1,
+            "index": int(point),
+            "distance": float(distances[point]),
+            "previous_speed_limit": float(speed_limits[point - 1]),
+        }
+        for index, point in enumerate(change_points)
+        if point > 0
+    ]
+
+#writes braking times to a CSV file
+def write_braking_time_csv(route_data_by_train, train_types_by_train, rolling_stock_data, output_file=BRAKING_TIME_FILE,):
+    """Write stopping times before every node in each train route.
+
+    Rows are ordered route-node ordinals and columns are train routes. Each
+    cell is the time in seconds to stop from the preceding route node's speed
+    limit using that route's rolling-stock type. The first route node has no
+    preceding node and therefore receives a braking time of zero.
+    """
+    route_nodes = {}
+    for train_id, (_route_network, results) in route_data_by_train.items():
+        train_type = train_types_by_train.get(train_id)
+        if train_type is None:
+            raise KeyError(f"No train type found for route {train_id!r}")
+        speed_limits = np.asarray(results[10], dtype=float)
+        alphas_uniform = np.asarray(results[8], dtype=float)
+        distances = np.asarray(results[7], dtype=float)
+        attributes = resolve_rolling_stock_attributes(
+            train_type,
+            rolling_stock_data,
+        )
+        mass = attributes["mass (kg)"]
+        rotating_factor = attributes.get("rotating mass factor", 1.0)
+        brake_force = (
+            attributes["brake acceleration (m/s^2)"]
+            * rotating_factor
+            * mass
+        )
+        normalized_type = str(train_type).strip().casefold()
+        if normalized_type == "maglev":
+            air_density = 1.204
+            frontal_area = attributes["width (m)"] * attributes["height (m)"]
+
+            def resistance_function(speed):
+                return calculate_air_resistance(
+                    speed,
+                    attributes["drag coefficient"],
+                    air_density,
+                    frontal_area,
+                )
+        else:
+
+            def resistance_function(speed):
+                return calculate_davis_resistance(attributes, speed)
+
+        all_route_nodes = results[13]
+        route_nodes[train_id] = []
+        for node_index in range(len(all_route_nodes)):
+            if node_index == 0:
+                route_nodes[train_id].append(0.0)
+                continue
+
+            previous_node_distance = all_route_nodes[node_index - 1]["distance"]
+            previous_speed_limit = float(np.interp(
+                previous_node_distance,
+                distances,
+                speed_limits,
+            ))
+            brake_index = min(
+                len(alphas_uniform) - 1,
+                max(
+                    1,
+                    int(np.searchsorted(
+                        distances,
+                        previous_node_distance,
+                        side="left",
+                    )),
+                ),
+            )
+            if previous_speed_limit <= 0:
+                route_nodes[train_id].append(0.0)
+            else:
+                _velocities, _braking_distances, braking_times = get_brake_curve(
+                    brake_index,
+                    previous_speed_limit,
+                    0.0,
+                    brake_force,
+                    mass,
+                    9.81,
+                    alphas_uniform,
+                    rotating_factor,
+                    resistance_function,
+                    dt=0.1,
+                    return_times=True,
+                )
+                route_nodes[train_id].append(float(braking_times[-1]))
+
+    route_ids = list(route_nodes)
+    row_count = max(
+        (len(values) for values in route_nodes.values()),
+        default=0,
+    )
+    with open(output_file, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["Node"] + [
+            f"Route {train_id}" for train_id in route_ids
+        ])
+        for row_index in range(row_count):
+            writer.writerow([
+                f"Node {row_index + 1}",
+                *[
+                    values[row_index] if row_index < len(values) else ""
+                    for values in (
+                        route_nodes[train_id] for train_id in route_ids
+                    )
+                ],
+            ])
+
+#handles multiple train sets being coupled together
+def resolve_rolling_stock_attributes(vehicle_type, rolling_stock_data,):
     """Resolve a single or combined vehicle type using the CSV rules."""
     frame, normalized_rows, behaviour_column = rolling_stock_data
     is_combined_vehicle = "+" in str(vehicle_type)
@@ -268,11 +460,7 @@ def resolve_rolling_stock_attributes(
     return attributes
 
 
-def _route_points(
-    route_network,
-    include_speed_limits=False,
-    include_route_segments=False,
-):
+def _route_points(route_network, include_speed_limits=False, include_route_segments=False,):
     """Extract ordered x/y/z points and optional infrastructure limits."""
     def same_point(first, second):
         return math.hypot(
@@ -297,6 +485,7 @@ def _route_points(
             ) from error
         segment_start = len(coordinates)
         segment_station = None
+        segment_edges = []
         for first, second in zip(path, path[1:]):
             edge_data = route_network.get_edge_data(first, second)
             if not edge_data:
@@ -322,12 +511,28 @@ def _route_points(
                 raise ValueError(
                     f"Edge geometry does not start at route node {first!r}"
                 )
-            if coordinates and same_point(geometry[0], coordinates[-1]):
+            shares_previous_point = (
+                bool(coordinates)
+                and same_point(geometry[0], coordinates[-1])
+            )
+            edge_start = (
+                len(coordinates) - 1
+                if shares_previous_point
+                else len(coordinates)
+            )
+            if shares_previous_point:
                 geometry = geometry[1:]
                 edge_speed_limits = edge_speed_limits[1:]
             coordinates.extend(geometry)
             if include_speed_limits:
                 infrastructure_speed_limits.extend(edge_speed_limits)
+            segment_edges.append({
+                "edge_id": attributes.get("edge_id"),
+                "origin": first,
+                "destination": second,
+                "start_index": edge_start,
+                "end_index": len(coordinates) - 1,
+            })
 
         if include_route_segments and len(coordinates) > segment_start:
             route_segments.append({
@@ -340,6 +545,7 @@ def _route_points(
                     if segment_index < len(assigned_edges)
                     else None
                 ),
+                "edges": segment_edges,
             })
 
     if len(coordinates) < 2:
@@ -352,13 +558,7 @@ def _route_points(
     return coordinates
 
 
-def _station_stop_distances(
-    route_network,
-    route_segments,
-    coordinates,
-    distances,
-    station_stops,
-):
+def _station_stop_distances(route_network, route_segments, coordinates, distances, station_stops,):
     """Return stops at the second labelled node of each non-origin station.
 
     The first station in ``station_stops`` is the route origin and is not a
@@ -427,13 +627,7 @@ def _station_stop_distances(
     return sorted(stop_distances)
 
 
-def _simplified_route_events(
-    route_network,
-    infrastructure_graph,
-    route_segments,
-    coordinates,
-    distances,
-):
+def _simplified_route_events(route_network, infrastructure_graph, route_segments, coordinates, distances,):
     """Return simplified station/junction events and their route distances."""
     events = []
     for segment in route_segments:
@@ -511,13 +705,7 @@ def _speed_color(speed_kmh, minimum_speed, maximum_speed):
     return f"#{red:02x}{green:02x}{blue:02x}"
 
 
-def write_first_train_speed_map(
-    route_network,
-    positions,
-    velocities,
-    train_id,
-    output_file,
-):
+def write_first_train_speed_map(route_network, positions, velocities, train_id, output_file,):
     """Write an HTML map of the first train's simulated route speed."""
     coordinates = _route_points(route_network)
     projected_line = gpd.GeoSeries(
@@ -576,29 +764,19 @@ def write_first_train_speed_map(
     ])
     speed_map.save(output_file)
 
-def get_brake_curve(
-    i,
-    v_max,
-    v_target,
-    F_brake,
-    m,
-    g,
-    alphas_uniform,
-    rotating_factor,
-    resistance_function,
-    dx=1,
-):
+def get_brake_curve(i, v_max, v_target, F_brake, m, g, alphas_uniform, rotating_factor, resistance_function, dx=1, dt=0.1, return_times=False,):
     velocities = []
     distances = []
+    times = []
 
     v_current = v_max
     x_current = 0
-
-    dt = 0.1 #seconds
+    elapsed = 0.0
 
     while(v_current > v_target): 
         distances.append(x_current)
         velocities.append(v_current)
+        times.append(elapsed)
 
         # Same braking equation as main simulation
         resistance = resistance_function(v_current)
@@ -607,10 +785,14 @@ def get_brake_curve(
             - m * g * math.sin(alphas_uniform[i - 1])
             - resistance
         ) * dt / (rotating_factor * m)
+        if not np.isfinite(dv) or dv <= 0:
+            raise RuntimeError("Brake curve calculation did not converge")
+        dv = min(dv, v_current - v_target)
         v_current -= dv
         
         # Calculate distance traveled in this time step
         x_current += v_current * dt
+        elapsed += dt
 
     # Interpolate to get velocities at regular distance intervals
     if len(distances) > 1:
@@ -618,6 +800,9 @@ def get_brake_curve(
     else:
         brake_curve_interpolated = np.array([v_max])
     
+    if return_times:
+        times.append(elapsed)
+        return brake_curve_interpolated, np.asarray(distances), np.asarray(times)
     return brake_curve_interpolated
 
 def find_speed_limit_changes(speed_limits):
@@ -634,15 +819,7 @@ def find_speed_limit_changes(speed_limits):
 #max centripetal acceleration from track cant angle, and a train stopping for a station or having some other limit
 
 #this needs to be modified because currently, if theta is 0, the speed limit will be 0. Small angle approximation?
-def calculate_speed_limit(
-    r,
-    g,
-    max_centripetal_acceleration,
-    vehicle_max_speed,
-    theta=0,
-    vehicle_type=None,
-    infrastructure_speed_limit=None,
-):
+def calculate_speed_limit(r, g, max_centripetal_acceleration, vehicle_max_speed, theta=0, vehicle_type=None, infrastructure_speed_limit=None,):
     """Return the applicable speed limit in metres per second.
 
     Non-maglev vehicles use a finite infrastructure limit in preference to
@@ -824,10 +1001,7 @@ def calculate_speed_limit_geojson(geojson, g, max_centripetal_acceleration, vehi
 
     return speed_limits
 
-def calculate_davis_resistance(
-    rolling_stock_attributes,
-    v,
-):
+def calculate_davis_resistance(rolling_stock_attributes, v,):
     """Calculate Davis resistance in newtons for speed ``v`` in m/s."""
     return (
         rolling_stock_attributes["constant resistance (n)"]
@@ -836,13 +1010,7 @@ def calculate_davis_resistance(
     )
 
 
-def calculate_route_data(
-    route_network,
-    station_stops_for_route=(),
-    infrastructure_graph=None,
-    vehicle_type="conventional",
-    rolling_stock_data=None,
-):
+def calculate_route_data(route_network, station_stops_for_route=(), infrastructure_graph=None, vehicle_type="conventional", rolling_stock_data=None,):
     """Calculate running data from one directed route network."""
     if rolling_stock_data is None:
         raise ValueError("Rolling-stock data is required for route calculation")
@@ -891,8 +1059,6 @@ def calculate_route_data(
     MAX_CENTRIPETAL_ACCELERATION = 0.15 #g
     MAX_TRAIN_SPEED = attributes["max speed (km/h)"] / 3.6
     F_max = attributes["max tractive force (n)"]
-    gauge_magrail = 1 #m
-    gauge_standard = 1.435 #m
     F_brake = brake_acceleration * rotating_factor * m
     if is_maglev:
         train_width = attributes["width (m)"]
@@ -965,6 +1131,22 @@ def calculate_route_data(
         coordinates,
         np.asarray(s),
     )
+    route_edge_events = []
+    for segment in route_segments:
+        for edge in segment["edges"]:
+            route_edge_events.append({
+                "edge_id": edge["edge_id"],
+                "origin": route_network.nodes[edge["origin"]].get(
+                    "node_id",
+                    edge["origin"],
+                ),
+                "destination": route_network.nodes[edge["destination"]].get(
+                    "node_id",
+                    edge["destination"],
+                ),
+                "start_distance": float(s[edge["start_index"]]),
+                "end_distance": float(s[edge["end_index"]]),
+            })
 
     for i in range(1, len(z)):
         delta_s = s[i] - s[i - 1]
@@ -1219,6 +1401,7 @@ def calculate_route_data(
         brake_limits,
         route_events,
         route_node_events,
+        route_edge_events,
     )
 
 
@@ -1234,11 +1417,7 @@ def _signature_value(value):
     return value
 
 
-def _route_calculation_signature(
-    route_network,
-    station_stops,
-    vehicle_type,
-):
+def _route_calculation_signature(route_network, station_stops, vehicle_type,):
     """Return the inputs that determine a route's running-time calculation."""
     route_nodes = tuple(
         tuple(node) for node in route_network.graph.get(
@@ -1260,13 +1439,7 @@ def _route_calculation_signature(
     )
 
 
-def calculate_identical_route_data(
-    route_graphs,
-    station_stops_by_train,
-    infrastructure_graph,
-    train_types_by_train,
-    rolling_stock_data,
-):
+def calculate_identical_route_data(route_graphs, station_stops_by_train, infrastructure_graph, train_types_by_train, rolling_stock_data,):
     """Calculate one result for each group of identical train routes.
 
     Routes are identical when they have the same ordered route nodes, the same
@@ -1332,11 +1505,30 @@ def _schedule_node_events(route_node_events, station_stops):
     return schedule_events
 
 
-def write_route_node_csvs(
-    route_data_by_train,
-    station_stops_by_train,
-    output_folder=ROUTE_CSV_FOLDER,
-):
+def _maximum_speed_between_distances(start_distance, end_distance, positions, velocities,):
+    """Return the highest simulated speed reached between two route nodes."""
+    lower_distance, upper_distance = sorted(
+        (float(start_distance), float(end_distance))
+    )
+    positions = np.asarray(positions, dtype=float)
+    velocities = np.asarray(velocities, dtype=float)
+    in_edge = (
+        (positions >= lower_distance)
+        & (positions <= upper_distance)
+    )
+    edge_velocities = velocities[in_edge]
+    edge_velocities = np.append(
+        edge_velocities,
+        np.interp(
+            [lower_distance, upper_distance],
+            positions,
+            velocities,
+        ),
+    )
+    return float(np.max(edge_velocities) * 3.6)
+
+
+def write_route_node_csvs(route_data_by_train, station_stops_by_train, output_folder=ROUTE_CSV_FOLDER,):
     """Write one schedule-ordered station travel-time CSV per train."""
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -1375,10 +1567,7 @@ def write_route_node_csvs(
                 writer.writerow([station_stops[index], travel_time])
 
 
-def display_speed_profile_graphs(
-    route_data_by_train,
-    group_examples,
-):
+def display_speed_profile_graphs(route_data_by_train, group_examples,):
     """Display one full-route speed profile graph for each calculated group."""
     for group_number, (signature, example_train_id) in enumerate(
         group_examples.items(),
@@ -1437,18 +1626,7 @@ def display_speed_profile_graphs(
     plt.show()
 
 
-def main(
-    route_graph_file=ROUTE_GRAPH_FILE,
-    existing_route_stops_file=EXISTING_ROUTE_STOPS_FILE,
-    new_route_stops_file=NEW_ROUTE_STOPS_FILE,
-    route_data_file=ROUTE_DATA_FILE,
-    rolling_stock_data_file=ROLLING_STOCK_DATA_FILE,
-    results_file=RESULTS_FILE,
-    node_results_file=NODE_RESULTS_FILE,
-    infrastructure_graph_file=INFRASTRUCTURE_GRAPH_FILE,
-    route_csv_folder=ROUTE_CSV_FOLDER,
-    route_map_folder=ROUTE_MAP_FOLDER,
-):
+def main(route_graph_file=ROUTE_GRAPH_FILE, existing_route_stops_file=EXISTING_ROUTE_STOPS_FILE, new_route_stops_file=NEW_ROUTE_STOPS_FILE, route_data_file=ROUTE_DATA_FILE, rolling_stock_data_file=ROLLING_STOCK_DATA_FILE, results_file=RESULTS_FILE, node_results_file=NODE_RESULTS_FILE, infrastructure_graph_file=INFRASTRUCTURE_GRAPH_FILE, route_csv_folder=ROUTE_CSV_FOLDER, route_map_folder=ROUTE_MAP_FOLDER, braking_time_file=BRAKING_TIME_FILE,):
     """Calculate running times and grouped route outputs."""
     with open(route_graph_file, "rb") as handle:
         route_graphs = pickle.load(handle)
@@ -1477,8 +1655,7 @@ def main(
         route_network, results = route_data_by_train[train_id]
         station_stops_for_route = station_stops_by_train.get(train_id, [])
         times, positions, velocities = results[:3]
-        route_events = results[12]
-        route_node_events = results[13]
+        route_edge_events = results[14]
         stop_duration = stop_durations_by_train.get(train_id, 0)
         total_dwell_time = max(
             stop_duration * (len(station_stops_for_route) - 2),
@@ -1495,22 +1672,23 @@ def main(
             average_speed,
             max_speed,
         ])
-        node_event_times = [
-            float(np.interp(event["distance"], positions, times))
-            for event in route_node_events
-        ]
-        for first, second, first_time, second_time in zip(
-            route_node_events,
-            route_node_events[1:],
-            node_event_times,
-            node_event_times[1:],
-        ):
+        for edge in route_edge_events:
+            start_distance = edge["start_distance"]
+            end_distance = edge["end_distance"]
             node_result_rows.append([
                 train_id,
-                first["node"],
-                second["node"],
-                second["distance"] - first["distance"],
-                second_time - first_time,
+                edge["edge_id"],
+                edge["origin"],
+                edge["destination"],
+                end_distance - start_distance,
+                float(np.interp(end_distance, positions, times))
+                - float(np.interp(start_distance, positions, times)),
+                _maximum_speed_between_distances(
+                    start_distance,
+                    end_distance,
+                    positions,
+                    velocities,
+                ),
             ])
         print(
             f"Train {train_id}: {total_time / 60:.2f} minutes, "
@@ -1523,6 +1701,12 @@ def main(
         route_data_by_train,
         station_stops_by_train,
         route_csv_folder,
+    )
+    write_braking_time_csv(
+        route_data_by_train,
+        train_types_by_train,
+        rolling_stock_data,
+        braking_time_file,
     )
     display_speed_profile_graphs(
         route_data_by_train,
@@ -1558,10 +1742,12 @@ def main(
         writer = csv.writer(handle)
         writer.writerow([
             "Train ID",
+            "Edge ID",
             "Origin Node",
             "Destination Node",
             "Distance (m)",
             "Minimum Running Time (s)",
+            "Maximum Speed (km/h)",
         ])
         writer.writerows(node_result_rows)
 

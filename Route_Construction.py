@@ -224,12 +224,7 @@ def _network_edges(network_graph):
     return indexed
 
 
-def _shortest_route_for_edges(
-    network_graph,
-    required_edges,
-    minimum_junction_angle=90.0,
-    heuristic_weight=2.0,
-):
+def _shortest_route_for_edges(network_graph, required_edges, minimum_junction_angle=90.0, heuristic_weight=2.0,):
     """Find a feasible route through the required network edges in order."""
     if heuristic_weight < 1.0:
         raise ValueError("heuristic_weight must be at least 1")
@@ -392,12 +387,7 @@ def _shortest_route_for_edges(
     return partial_route
 
 
-def assign_routes(
-    routes,
-    network_graph_file="case_study_network.gpickle",
-    minimum_junction_angle=90.0,
-    heuristic_weight=2.0,
-):
+def assign_routes(routes, network_graph_file="case_study_network.gpickle", minimum_junction_angle=90.0, heuristic_weight=2.0,):
     """Assign the shortest feasible track route to every train definition.
 
     If all required edges cannot be covered in order, the best partial
@@ -574,11 +564,7 @@ def _ordered_route_nodes_and_edges(route_graph):
     return ordered_nodes, ordered_edge_ids
 
 
-def build_station_junction_graph(
-    route_graphs,
-    infrastructure_graph,
-    station_stops_by_train=None,
-):
+def build_station_junction_graph(route_graphs, infrastructure_graph, station_stops_by_train=None,):
     """Build a multigraph of stations and traversed infrastructure junctions."""
     junction_graph = nx.MultiDiGraph()
     junction_graph.graph.update({
@@ -690,17 +676,7 @@ def write_route_graphs(route_graphs, output_file="case_study_route_graphs.pkl"):
         pickle.dump(route_graphs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def assign_routes_from_csv(
-    csv_file="required_edges.csv",
-    network_graph_file="case_study_network.gpickle",
-    minimum_junction_angle=90.0,
-    route_graph_output="case_study_route_graphs.pkl",
-    station_graph_output="case_study_station_graph.gpickle",
-    station_junction_graph_output="case_study_station_junction_graph.gpickle",
-    existing_station_stops_file="existing_rail_routes.csv",
-    new_station_stops_file="new_rail_routes.csv",
-    heuristic_weight=2.0,
-):
+def assign_routes_from_csv(csv_file="required_edges.csv", network_graph_file="case_study_network.gpickle", minimum_junction_angle=90.0, route_graph_output="case_study_route_graphs.pkl", station_graph_output="case_study_station_graph.gpickle", station_junction_graph_output="case_study_station_junction_graph.gpickle", existing_station_stops_file="existing_rail_routes.csv", new_station_stops_file="new_rail_routes.csv", heuristic_weight=2.0,):
     """Load edge-based rail routes from CSV and assign feasible paths."""
     assignments = assign_routes(
         load_rail_routes(csv_file),

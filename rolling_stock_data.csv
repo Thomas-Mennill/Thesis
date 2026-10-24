@@ -1,0 +1,20 @@
+﻿,VIRM-4,VIRM-6,SLT-4,SLT-6,Freight Train Full,Freight Train Empty,ICE-3NEO,FLIRT-4,FLIRT-5,FLIRT-6,SNG-3,SNG-4,GTW-2,GTW-3,Protos,Mat-64,,ICM-3,ICM-4,DDZ-4,DDZ-6,ICNG-5,ICNG-8,Maglev,Combined Behaviour
+max_speed (km/h),160,160,160,160,95,95,,,,,,,,,,,,,,,,,,500,Min
+Mass (kg),262018.2716,391000,129000,176000,2400000,786000,,,,,,,,,,,,,,,,,,318000,Sum
+Brake Acceleration (m/s^2),0.5,0.5,0.5,0.5,0.5,0.5,,,,,,,,,,,,,,,,,,1,Min
+Power (W),1445456.296,2157000,1260000,1755000,5600000,5600000,,,,,,,,,,,,,,,,,,3000000,Sum
+Width (m),3.02,,2.84,,,,,,,,,,,,,,,,,,,,,3,Max
+Height (m),4.67,,4.21,,,,,,,,,,,,,,,,,,,,,4.2,Max
+Max Tractive Force (N),143339.4074,213900,193500,170000,236220,236220,,,,,,,,,,,,,,,,,,276000,Sum
+Length (m),108.56,162,69.36,101,515,515,,,,,,,,,,,,,,,,,,153.6,Sum
+Max acceleration m/s^2,,,,,,,,,,,,,,,,,,,,,,,,1.5,Min
+Drag Coefficient,,,,,,,,,,,,,,,,,,,,,,,,0.26,Max
+Quadratic Resistance (Ns^2/m^2),,7.82,,6.75,141.05,48.81,,,,,,,,,,,,,,,,,,0,Sum
+Linear Resistance (Ns/m),,43.43,,37.48,796.97,284.49,,,,,,,,,,,,,,,,,,0,Sum
+Constant Resistance (N),,2711.3,,1375.8,30658,10949,,,,,,,,,,,,,,,,,,0,Sum
+Rotating Mass Factor,,1.06,,,,,,,,,,,,,,,,,,,,,,,"Weighted average, based on length"
+,,,,,,,,,,,,,,,,,,,,,,,,,
+Sources,,Scheepmaker 2022 Energy Efficient Train Timetabling,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,
+,0.670123457,,,,,,,,,,,,,,,,,,,,,,,,

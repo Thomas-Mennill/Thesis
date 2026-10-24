@@ -120,8 +120,7 @@ def _continuation(graph, previous, current, candidates):
 	)
 
 
-def _walk_segment(graph, start, first, switches, level_crossings,
-				  assigned_edges, claimed_nodes):
+def _walk_segment(graph, start, first, switches, level_crossings, assigned_edges, claimed_nodes):
 	nodes = []
 	if start not in switches:
 		nodes.append(start)
@@ -150,8 +149,7 @@ def _walk_segment(graph, start, first, switches, level_crossings,
 	return nodes
 
 
-def split_railway_graph(graph, switch_points, level_crossing_points,
-						switch_tolerance=DEFAULT_SWITCH_TOLERANCE_M):
+def split_railway_graph(graph, switch_points, level_crossing_points, switch_tolerance=DEFAULT_SWITCH_TOLERANCE_M):
 	"""Return numbered segments and switch metadata from a railway graph.
 
 	Switch nodes are excluded from segments.  Level crossings are ordinary
@@ -247,8 +245,7 @@ def _geojson_features(segments, switches):
 	return segment_features, switch_features
 
 
-def split_file(input_file, output_segments, output_switches,
-			   switch_tolerance=DEFAULT_SWITCH_TOLERANCE_M):
+def split_file(input_file, output_segments, output_switches, switch_tolerance=DEFAULT_SWITCH_TOLERANCE_M):
 	import geopandas as gpd
 
 	data = gpd.read_file(input_file).to_crs(PROJECTED_CRS)

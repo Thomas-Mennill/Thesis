@@ -330,9 +330,7 @@ def directions_are_parallel(first, second):
 	return dot_product >= PLATFORM_PARALLEL_DOT_THRESHOLD
 
 
-def split_edges_at_platform_ends(
-	graph, data, platform_station_names_by_index
-):
+def split_edges_at_platform_ends(graph, data, platform_station_names_by_index):
 	"""Split tracks where nearest-platform distance crosses four metres."""
 	stations = data[data["railway"].eq("station")]
 	platforms = data[data["railway"].eq("platform")]
@@ -706,11 +704,7 @@ def add_station_end_boundaries(graph, data, platform_station_names_by_index):
 				)
 
 
-def add_station_end_boundaries_by_platform_end_axis(
-	graph,
-	data,
-	platform_station_names_by_index,
-):
+def add_station_end_boundaries_by_platform_end_axis(graph, data, platform_station_names_by_index,):
 	"""Add station boundaries using the platform-end geometry as the axis.
 
 	This alternative avoids choosing one arbitrary platform direction and does
@@ -1266,9 +1260,7 @@ def station_nodes_from_retained_platforms(graph):
 	return station_nodes
 
 
-def station_nodes_from_platforms(
-	graph, data, platform_station_names_by_index
-):
+def station_nodes_from_platforms(graph, data, platform_station_names_by_index):
 	"""Assign graph nodes to nearby station-associated platforms."""
 	print(
 		f"[Progress] Assigning station membership to "
@@ -1311,12 +1303,7 @@ def station_nodes_from_platforms(
 	return station_nodes
 
 
-def assign_station_edges(
-	graph,
-	station_nodes,
-	data=None,
-	platform_station_names_by_index=None,
-):
+def assign_station_edges(graph, station_nodes, data=None, platform_station_names_by_index=None,):
 	"""Assign station edges and annotate edges running beside one platform."""
 	platforms_by_station = defaultdict(list)
 	if data is not None and platform_station_names_by_index is not None:
@@ -1693,9 +1680,7 @@ def build_station_sections(graph, station_nodes):
 	return sections
 
 
-def station_pair_is_within_distance(
-	first_nodes, second_nodes, maximum_distance
-):
+def station_pair_is_within_distance(first_nodes, second_nodes, maximum_distance):
 	"""Return whether two station node sets are within a distance limit."""
 	maximum_distance_squared = maximum_distance ** 2
 	for first in first_nodes:
@@ -1858,9 +1843,7 @@ def write_geojson_with_fallback(data, output_file):
 			os.remove(temporary_file)
 
 
-def write_redefined_network_map(
-	graph, output_file=OUTPUT_NETWORK_MAP
-):
+def write_redefined_network_map(graph, output_file=OUTPUT_NETWORK_MAP):
 	"""Write the redefined network with retained nodes prominently marked."""
 	if not graph.nodes:
 		raise ValueError("Cannot create a map for an empty graph")
@@ -2146,9 +2129,7 @@ def write_station_outputs(graph, station_nodes, output_folder=OUTPUT_STATION_FOL
 	)
 
 
-def write_between_station_outputs(
-	graph, station_nodes, output_folder=OUTPUT_COMPONENT_FOLDER
-):
+def write_between_station_outputs(graph, station_nodes, output_folder=OUTPUT_COMPONENT_FOLDER):
 	"""Write only angle-valid paths between each pair of stations."""
 	clear_output_directory(output_folder)
 

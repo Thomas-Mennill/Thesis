@@ -333,11 +333,7 @@ def display_station_graph_on_osm(station_graph, station_node_lookup, output_path
         plt.close(figure)
 
 
-def build_station_connection_graph_and_write_geojsons(
-    railways_path="NL_Railway_Data_Signals.geojson",
-    output_dir="station_edge_geojsons",
-    display_graph=True,
-):
+def build_station_connection_graph_and_write_geojsons(railways_path="NL_Railway_Data_Signals.geojson", output_dir="station_edge_geojsons", display_graph=True,):
     """Build a raw railway graph and derive a station graph by traversing each station's raw branches until the next station is reached.
 
     This produces one edge per adjacent station pair, with the geometry and intermediate raw-node data stored as edge attributes so the full railway path can later be reconstructed as a route.

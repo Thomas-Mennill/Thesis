@@ -172,16 +172,7 @@ def _ordered_trains(trains: Iterable[Mapping[str, Any]]) -> list[Mapping[str, An
     return sorted(trains, key=key)
 
 
-def _candidate_edges(
-    graph: nx.Graph,
-    node: Any,
-    station: str,
-    *,
-    sprinter: bool,
-    used_sprinter_tracks: set[tuple],
-    force_sprinter_track: bool,
-    requested_platforms: Mapping[str, Any],
-):
+def _candidate_edges(graph: nx.Graph, node: Any, station: str, *, sprinter: bool, used_sprinter_tracks: set[tuple], force_sprinter_track: bool, requested_platforms: Mapping[str, Any],):
     candidates = []
     for neighbour in graph.neighbors(node):
         neighbour_station = _station(neighbour, graph.nodes[neighbour])
@@ -243,12 +234,7 @@ def _candidate_edges(
         yield edge
 
 
-def _route_for_train(
-    graph: nx.Graph,
-    train: Mapping[str, Any],
-    used_sprinter_tracks: set[tuple],
-    force_sprinter_track: bool,
-) -> dict[str, Any]:
+def _route_for_train(graph: nx.Graph, train: Mapping[str, Any], used_sprinter_tracks: set[tuple], force_sprinter_track: bool,) -> dict[str, Any]:
     stations = [str(item).strip() for item in train.get("stations", ())]
     if len(stations) < 2 or any(not station for station in stations):
         raise ValueError(f"Train {train.get('id', '<unknown>')} needs two stations")
@@ -347,12 +333,7 @@ def _route_for_train(
     }
 
 
-def assign_train_routes(
-    graph: nx.Graph,
-    trains: Iterable[Mapping[str, Any]],
-    *,
-    non_sprinter_limit: int = 12,
-) -> list[dict[str, Any]]:
+def assign_train_routes(graph: nx.Graph, trains: Iterable[Mapping[str, Any]], *, non_sprinter_limit: int = 12,) -> list[dict[str, Any]]:
     """Assign tracks first, then complete every route in service order."""
     if non_sprinter_limit < 0:
         raise ValueError("non_sprinter_limit must be non-negative")

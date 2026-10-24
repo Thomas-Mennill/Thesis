@@ -277,9 +277,7 @@ def report_unrouted_anchors(graph, station_name, unrouted, routed):
 		)
 
 
-def trace_unconnected_anchor_paths(
-	graph, station_nodes, anchors, unrouted
-):
+def trace_unconnected_anchor_paths(graph, station_nodes, anchors, unrouted):
 	"""Trace every branch from unrouted anchors until it cannot continue."""
 	stuck_paths = set()
 	for station_name, starts in unrouted:

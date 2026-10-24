@@ -138,11 +138,7 @@ def restore_source_attributes(properties):
     return properties
 
 
-def find_case_study_section_files(
-    section_names_file=DEFAULT_SECTION_NAMES_FILE,
-    between_station_folder=DEFAULT_BETWEEN_STATION_FOLDER,
-    station_nodes_folder=DEFAULT_STATION_NODES_FOLDER,
-):
+def find_case_study_section_files(section_names_file=DEFAULT_SECTION_NAMES_FILE, between_station_folder=DEFAULT_BETWEEN_STATION_FOLDER, station_nodes_folder=DEFAULT_STATION_NODES_FOLDER,):
     """Find listed fragments in the redefined graph output folders."""
     names_path = Path(section_names_file)
     if not names_path.is_file():
@@ -217,11 +213,7 @@ def find_case_study_section_files(
     return resolved_files
 
 
-def reassemble_network(
-    section_names_file=None,
-    between_station_folder=DEFAULT_BETWEEN_STATION_FOLDER,
-    station_nodes_folder=DEFAULT_STATION_NODES_FOLDER,
-):
+def reassemble_network(section_names_file=None, between_station_folder=DEFAULT_BETWEEN_STATION_FOLDER, station_nodes_folder=DEFAULT_STATION_NODES_FOLDER,):
     """Build a deduplicated MultiGraph from selected case-study fragments."""
     input_files = (
         find_case_study_section_files(
@@ -530,12 +522,7 @@ def _speed_color(speed_kmh, minimum, maximum):
 
 
 
-def write_network_map(
-    graph,
-    output_html=DEFAULT_OUTPUT_MAP,
-    color_by_speed=False,
-    show_nodes=True,
-):
+def write_network_map(graph, output_html=DEFAULT_OUTPUT_MAP, color_by_speed=False, show_nodes=True,):
     """Write a map showing tracks and optional nodes with speed-limit colors."""
     if not graph:
         raise ValueError("Cannot create a map for an empty graph")
@@ -616,10 +603,7 @@ def write_network_map(
             "speed_limit_kmh": speed_limit,
         })
 
-    def add_tooltip_layer(
-        parent, features, name, color, weight, display_fields,
-        property_color=False
-    ):
+    def add_tooltip_layer(parent, features, name, color, weight, display_fields, property_color=False):
         if not features:
             return
         fields = [

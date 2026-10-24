@@ -54,13 +54,7 @@ def load_stations(path: Path) -> set[str]:
     return stations
 
 
-def request_json(
-    base_url: str,
-    endpoint: str,
-    api_key: str,
-    params: dict[str, str],
-    timeout: int,
-) -> dict[str, Any]:
+def request_json(base_url: str, endpoint: str, api_key: str, params: dict[str, str], timeout: int,) -> dict[str, Any]:
     """Request and decode one NS API response, with actionable errors."""
     query = f"?{urlencode(params)}" if params else ""
     url = f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}{query}"
@@ -187,11 +181,7 @@ def route_vehicle(route_payload: dict[str, Any]) -> str:
     return ""
 
 
-def rows_for_route(
-    train: str,
-    route_response: dict[str, Any],
-    selected_stations: set[str],
-) -> list[dict[str, str]]:
+def rows_for_route(train: str, route_response: dict[str, Any], selected_stations: set[str],) -> list[dict[str, str]]:
     payload = payload_of(route_response)
     stops = payload.get("stops", [])
     if not isinstance(stops, list):
@@ -221,14 +211,7 @@ def rows_for_route(
     return rows
 
 
-def export_schedule(
-    stations_file: Path,
-    output_file: Path,
-    api_key: str,
-    base_url: str = DEFAULT_BASE_URL,
-    delay: float = 0.2,
-    timeout: int = DEFAULT_TIMEOUT,
-) -> int:
+def export_schedule(stations_file: Path, output_file: Path, api_key: str, base_url: str = DEFAULT_BASE_URL, delay: float = 0.2, timeout: int = DEFAULT_TIMEOUT,) -> int:
     selected_stations = load_stations(stations_file)
     train_numbers: set[str] = set()
     for station in sorted(selected_stations):

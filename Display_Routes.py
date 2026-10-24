@@ -103,13 +103,7 @@ def build_used_routes_network(route_graphs):
     return network
 
 
-def write_used_routes_network(
-    route_graph_file=DEFAULT_ROUTE_GRAPHS,
-    output_graph=DEFAULT_OUTPUT_GRAPH,
-    output_geojson=DEFAULT_OUTPUT_GEOJSON,
-    output_map=DEFAULT_OUTPUT_MAP,
-    output_map_no_nodes=DEFAULT_OUTPUT_MAP_NO_NODES,
-):
+def write_used_routes_network(route_graph_file=DEFAULT_ROUTE_GRAPHS, output_graph=DEFAULT_OUTPUT_GRAPH, output_geojson=DEFAULT_OUTPUT_GEOJSON, output_map=DEFAULT_OUTPUT_MAP, output_map_no_nodes=DEFAULT_OUTPUT_MAP_NO_NODES,):
     """Create all outputs for the union of tracks used by any route."""
     route_graphs = load_route_graphs(route_graph_file)
     network = build_used_routes_network(route_graphs)
