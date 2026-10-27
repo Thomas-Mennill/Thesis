@@ -289,7 +289,7 @@ def _shortest_route_for_edges(network_graph, required_edges, minimum_junction_an
         covered_count = state[3]
         return {
             "nodes": nodes,
-            "node_coordinates": route_nodes,
+            "node_ids": [item["node_id"] for item in nodes],
             "edge_ids": edge_ids,
             "length_meters": distance,
             "complete": covered_count == len(required),
@@ -421,15 +421,14 @@ def assign_routes(routes, network_graph_file="case_study_network.gpickle", minim
 
 
 def build_route_graphs(assignments, network_graph_file):
-    """Build an attribute-preserving network graph for each assigned route."""
+    """Build directed, attribute-preserving graph for each assigned route."""
     with Path(network_graph_file).open("rb") as handle:
         network_graph = pickle.load(handle)
 
     route_graphs = {}
     for assignment in assignments:
         train_id = assignment["train_id"]
-        edge_ids = set(assignment["edge_ids"])
-        route_graph = network_graph.__class__()
+        route_graph = nx.MultiDiGraph()
         route_graph.graph.update(copy.deepcopy(network_graph.graph))
         route_graph.graph.update({
             "train_id": train_id,
@@ -438,22 +437,53 @@ def build_route_graphs(assignments, network_graph_file):
                 assignment.get("required_edges", ())
             ),
             "assigned_edges": list(assignment["edge_ids"]),
-            "route_node_coordinates": copy.deepcopy(
-                assignment.get("node_coordinates", ())
-            ),
+            "route_node_ids": list(assignment["node_ids"]),
             "length_meters": assignment.get("length_meters"),
         })
 
-        for first, second, key, attributes in network_graph.edges(
-            keys=True, data=True
+        nodes_by_id = {
+            attributes["node_id"]: node
+            for node, attributes in network_graph.nodes(data=True)
+            if attributes.get("node_id") is not None
+        }
+        route_node_ids = list(assignment["node_ids"])
+        for node_id in route_node_ids:
+            node = nodes_by_id.get(node_id)
+            if node is None:
+                raise ValueError(
+                    f"Route for train {train_id!r} references unknown "
+                    f"node ID {node_id!r}"
+                )
+            route_graph.add_node(
+                node,
+                **copy.deepcopy(network_graph.nodes[node]),
+            )
+
+        for start_id, end_id, edge_id in zip(
+            route_node_ids,
+            route_node_ids[1:],
+            assignment["edge_ids"],
         ):
-            if str(attributes.get("edge_id")) not in edge_ids:
-                continue
-            route_graph.add_node(first, **copy.deepcopy(network_graph.nodes[first]))
-            route_graph.add_node(second, **copy.deepcopy(network_graph.nodes[second]))
+            start = nodes_by_id[start_id]
+            end = nodes_by_id[end_id]
+            candidates = [
+                (first, second, key, attributes)
+                for first, second, key, attributes in network_graph.edges(
+                    keys=True, data=True
+                )
+                if str(attributes.get("edge_id")) == str(edge_id)
+                and {first, second} == {start, end}
+            ]
+            if not candidates:
+                raise ValueError(
+                    f"Route for train {train_id!r} cannot orient edge "
+                    f"{edge_id!r} between node IDs {start_id!r} and "
+                    f"{end_id!r}"
+                )
+            _first, _second, key, attributes = candidates[0]
             route_graph.add_edge(
-                first,
-                second,
+                start,
+                end,
                 key=key,
                 **copy.deepcopy(attributes),
             )
@@ -479,16 +509,22 @@ def build_station_graph(route_graphs, station_stops_by_train=None):
             )
 
     for train_id, route_graph in route_graphs.items():
-        route_nodes = route_graph.graph.get("route_node_coordinates", ())
+        node_by_id = {
+            attributes["node_id"]: node
+            for node, attributes in route_graph.nodes(data=True)
+            if attributes.get("node_id") is not None
+        }
+        route_node_ids = route_graph.graph.get("route_node_ids", ())
+        route_nodes = [node_by_id[node_id] for node_id in route_node_ids]
         assigned_edges = route_graph.graph.get("assigned_edges", ())
         station_events = []
-        for node_index, node in enumerate(route_nodes):
+        for node_id, node in zip(route_node_ids, route_nodes):
             station = route_graph.nodes[node].get("station")
             if station in (None, "None"):
                 continue
             if station_events and station_events[-1][0] == station:
                 continue
-            station_events.append((station, node_index))
+            station_events.append((station, node_id))
             station_graph.add_node(
                 station,
                 stopping_train_ids=sorted(
@@ -500,14 +536,14 @@ def build_station_graph(route_graphs, station_stops_by_train=None):
                 ),
             )
 
-        for (origin, origin_index), (destination, destination_index) in zip(
+        for (origin, origin_id), (destination, destination_id) in zip(
             station_events, station_events[1:]
         ):
             if origin == destination:
                 continue
-            edge_ids = list(
-                assigned_edges[origin_index:destination_index]
-            )
+            origin_index = route_node_ids.index(origin_id)
+            destination_index = route_node_ids.index(destination_id)
+            edge_ids = list(assigned_edges[origin_index:destination_index])
             connection_key = (origin, destination, tuple(edge_ids))
             edge_key = connection_edges.get(connection_key)
             if edge_key is None:
@@ -516,7 +552,7 @@ def build_station_graph(route_graphs, station_stops_by_train=None):
                     destination,
                     train_id=train_id,
                     train_ids=[train_id],
-                    route_node_indices=(origin_index, destination_index),
+                    route_node_ids=(origin_id, destination_id),
                     edge_ids=edge_ids,
                 )
                 connection_edges[connection_key] = edge_key
@@ -530,7 +566,13 @@ def build_station_graph(route_graphs, station_stops_by_train=None):
 
 def _ordered_route_nodes_and_edges(route_graph):
     """Return the traversed infrastructure nodes and edge IDs in order."""
-    route_nodes = route_graph.graph.get("route_node_coordinates", ())
+    node_by_id = {
+        attributes["node_id"]: node
+        for node, attributes in route_graph.nodes(data=True)
+        if attributes.get("node_id") is not None
+    }
+    route_node_ids = route_graph.graph.get("route_node_ids", ())
+    route_nodes = [node_by_id[node_id] for node_id in route_node_ids]
     assigned_edges = route_graph.graph.get("assigned_edges", ())
     ordered_nodes = []
     ordered_edge_ids = []
@@ -603,7 +645,7 @@ def build_station_junction_graph(route_graphs, infrastructure_graph, station_sto
             route_graph
         )
         significant_events = []
-        for node_index, node in enumerate(ordered_nodes):
+        for node in ordered_nodes:
             station = route_graph.nodes[node].get("station")
             if station not in (None, "None"):
                 event = station
@@ -624,7 +666,10 @@ def build_station_junction_graph(route_graphs, infrastructure_graph, station_sto
 
             if significant_events and significant_events[-1][0] == event:
                 continue
-            significant_events.append((event, node_index))
+            significant_events.append((
+                event,
+                route_graph.nodes[node]["node_id"],
+            ))
             if event not in junction_graph:
                 junction_graph.add_node(event, **node_attributes)
             elif "passing_train_ids" in node_attributes:
@@ -638,11 +683,17 @@ def build_station_junction_graph(route_graphs, infrastructure_graph, station_sto
                 if train_id not in passing_train_ids:
                     passing_train_ids.append(train_id)
 
-        for (origin, origin_index), (destination, destination_index) in zip(
+        for (origin, origin_id), (destination, destination_id) in zip(
             significant_events, significant_events[1:]
         ):
             if origin == destination:
                 continue
+            ordered_ids = [
+                route_graph.nodes[node]["node_id"]
+                for node in ordered_nodes
+            ]
+            origin_index = ordered_ids.index(origin_id)
+            destination_index = ordered_ids.index(destination_id)
             edge_ids = ordered_edge_ids[origin_index:destination_index]
             connection_key = (origin, destination, tuple(edge_ids))
             edge_key = connection_edges.get(connection_key)
@@ -652,7 +703,7 @@ def build_station_junction_graph(route_graphs, infrastructure_graph, station_sto
                     destination,
                     train_id=train_id,
                     train_ids=[train_id],
-                    route_node_indices=(origin_index, destination_index),
+                    route_node_ids=(origin_id, destination_id),
                     edge_ids=list(edge_ids),
                 )
                 connection_edges[connection_key] = edge_key

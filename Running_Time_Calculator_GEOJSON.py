@@ -305,10 +305,10 @@ def write_braking_time_csv(route_data_by_train, train_types_by_train, rolling_st
                 return calculate_davis_resistance(attributes, speed)
 
         all_route_nodes = results[13]
-        route_nodes[train_id] = []
-        for node_index in range(len(all_route_nodes)):
+        route_nodes[train_id] = {}
+        for node_index, route_node in enumerate(all_route_nodes):
             if node_index == 0:
-                route_nodes[train_id].append(0.0)
+                route_nodes[train_id][route_node["node_id"]] = 0.0
                 continue
 
             previous_node_distance = all_route_nodes[node_index - 1]["distance"]
@@ -329,7 +329,7 @@ def write_braking_time_csv(route_data_by_train, train_types_by_train, rolling_st
                 ),
             )
             if previous_speed_limit <= 0:
-                route_nodes[train_id].append(0.0)
+                route_nodes[train_id][route_node["node_id"]] = 0.0
             else:
                 _velocities, _braking_distances, braking_times = get_brake_curve(
                     brake_index,
@@ -344,23 +344,26 @@ def write_braking_time_csv(route_data_by_train, train_types_by_train, rolling_st
                     dt=0.1,
                     return_times=True,
                 )
-                route_nodes[train_id].append(float(braking_times[-1]))
+                route_nodes[train_id][route_node["node_id"]] = float(
+                    braking_times[-1]
+                )
 
     route_ids = list(route_nodes)
-    row_count = max(
-        (len(values) for values in route_nodes.values()),
-        default=0,
-    )
+    node_ids = sorted({
+        node_id
+        for values in route_nodes.values()
+        for node_id in values
+    })
     with open(output_file, "w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["Node"] + [
             f"Route {train_id}" for train_id in route_ids
         ])
-        for row_index in range(row_count):
+        for node_id in node_ids:
             writer.writerow([
-                f"Node {row_index + 1}",
+                f"Node {node_id}",
                 *[
-                    values[row_index] if row_index < len(values) else ""
+                    values.get(node_id, "")
                     for values in (
                         route_nodes[train_id] for train_id in route_ids
                     )
@@ -468,7 +471,13 @@ def _route_points(route_network, include_speed_limits=False, include_route_segme
             float(first[1]) - float(second[1]),
         ) <= 1e-6
 
-    waypoints = route_network.graph.get("route_node_coordinates")
+    node_by_id = {
+        attributes["node_id"]: node
+        for node, attributes in route_network.nodes(data=True)
+        if attributes.get("node_id") is not None
+    }
+    route_node_ids = route_network.graph.get("route_node_ids", ())
+    waypoints = [node_by_id[node_id] for node_id in route_node_ids]
     if not waypoints:
         raise ValueError("Route network has no ordered route nodes")
 
@@ -680,6 +689,7 @@ def _route_node_events(route_network, route_segments, coordinates, distances):
             )
             events.append({
                 "node": node,
+                "node_id": route_network.nodes[node]["node_id"],
                 "station": route_network.nodes[node].get("station"),
                 "distance": float(distance_slice[coordinate_index]),
             })
@@ -1419,11 +1429,7 @@ def _signature_value(value):
 
 def _route_calculation_signature(route_network, station_stops, vehicle_type,):
     """Return the inputs that determine a route's running-time calculation."""
-    route_nodes = tuple(
-        tuple(node) for node in route_network.graph.get(
-            "route_node_coordinates", ()
-        )
-    )
+    route_nodes = tuple(route_network.graph.get("route_node_ids", ()))
     edge_ids = tuple(route_network.graph.get("assigned_edges", ()))
     model_attributes = tuple(
         (name, _signature_value(route_network.graph.get(name)))

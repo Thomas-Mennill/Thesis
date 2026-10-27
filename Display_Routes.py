@@ -38,8 +38,16 @@ def build_used_routes_network(route_graphs):
     edge_route_ids = {}
     for train_id, route_graph in route_graphs.items():
         network.graph.update(copy.deepcopy(route_graph.graph))
-        route_nodes = route_graph.graph.get("route_node_coordinates")
+        route_node_ids = route_graph.graph.get("route_node_ids")
         assigned_edges = route_graph.graph.get("assigned_edges")
+        nodes_by_id = {
+            attributes["node_id"]: node
+            for node, attributes in route_graph.nodes(data=True)
+            if attributes.get("node_id") is not None
+        }
+        route_nodes = [
+            nodes_by_id[node_id] for node_id in route_node_ids or ()
+        ]
         if not route_nodes or not assigned_edges:
             raise ValueError(
                 f"Route graph for train {train_id!r} lacks ordered traversal data"
@@ -48,12 +56,14 @@ def build_used_routes_network(route_graphs):
         for node, attributes in route_graph.nodes(data=True):
             network.add_node(node, **copy.deepcopy(attributes))
 
-        for index, edge_id in enumerate(assigned_edges):
-            if index + 1 >= len(route_nodes):
+        for start, end, edge_id in zip(
+            route_nodes,
+            route_nodes[1:],
+            assigned_edges,
+        ):
+            if start not in route_graph or end not in route_graph:
                 break
-            start = route_nodes[index]
-            end = route_nodes[index + 1]
-            segment_graph = nx.MultiGraph()
+            segment_graph = nx.MultiDiGraph()
             segment_graph.add_nodes_from(
                 node for node in route_graph if node in route_graph
             )
