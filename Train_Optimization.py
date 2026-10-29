@@ -964,6 +964,7 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 					f"No braking time for node {first_event.location_id} and "
 					f"route {second_vehicle!r}"
 				)
+			braking_time *= HEADWAY_TIME_SAFETY_FACTOR
 		incoming_speed_limit = first_node["incoming_speed_limit"] or 0.0
 		clearance_time = (
 			vehicle_lengths[str(first_event.route_id).strip()]
@@ -995,7 +996,7 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 				return base + switching_time[
 					f"{first_type}_{second_type}"
 				]
-		return None
+		return base
 
 	def time_at(route, node):
 		if route["start_time"] is None or route["end_time"] is None:
@@ -1400,14 +1401,37 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 					departures[0]["event_id"],
 				))
 
+	headway_event_ids = list(V_departure) + list(V_arrival)
+	excluded_first_station_events = set()
+	for route_key, route in route_data.items():
+		station_nodes = {}
+		for node in route["nodes"]:
+			for station in station_names(route["graph"], node):
+				retained = markers(route["graph"], node)
+				if retained:
+					station_nodes.setdefault(station, []).append(node)
+		for candidates in station_nodes.values():
+			candidates.sort(
+				key=lambda node: route["distance"].get(node, float("inf"))
+			)
+			if candidates:
+				excluded_first_station_events.add(
+					route_node_events[route_key][candidates[0]]
+				)
+		headway_event_ids.extend(
+			event_id
+			for node, event_id in route_node_events[route_key].items()
+			if event_id not in excluded_first_station_events
+		)
+	headway_event_ids = sorted(set(headway_event_ids))
 	E_headway = [
-		(departure_id, arrival_id)
-		for departure_id in V_departure
-		for arrival_id in V_arrival
-		if Events[departure_id].location_id == Events[arrival_id].location_id
+		(first_id, second_id)
+		for position, first_id in enumerate(headway_event_ids)
+		for second_id in headway_event_ids[position + 1:]
+		if Events[first_id].location_id == Events[second_id].location_id
 		and (
-			Events[departure_id].service_id_internal
-			!= Events[arrival_id].service_id_internal
+			Events[first_id].service_id_internal
+			!= Events[second_id].service_id_internal
 		)
 	]
 	event_count = len(Events)
@@ -1416,8 +1440,9 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 		first_event = Events[first_event_id]
 		second_event = Events[second_event_id]
 		value = headway_value(first_event, second_event)
-		if value is not None:
-			headway_time_min[first_event_id, second_event_id] = value
+		reverse_value = headway_value(second_event, first_event)
+		headway_time_min[first_event_id, second_event_id] = value
+		headway_time_min[second_event_id, first_event_id] = reverse_value
 	E_travel = E_running
 	V_initial = [
 		item.event_id for item in Events if item.is_initial
@@ -2352,9 +2377,92 @@ def export_train_schedule_csv(schedule, output_file="train_schedule.csv"):
 	return Path(output_file)
 
 
+def export_minimum_headways_csv(
+	events=None,
+	headway_edges=None,
+	headway_time_minimums=None,
+	output_file="minimum_headways.csv",
+):
+	"""Export every calculated minimum headway between train event pairs."""
+	events = Events if events is None else events
+	headway_edges = E_headway if headway_edges is None else headway_edges
+	headway_time_minimums = (
+		headway_time_min
+		if headway_time_minimums is None
+		else headway_time_minimums
+	)
+
+	def format_time(value):
+		if value is None or pd.isna(value):
+			return ""
+		whole_seconds = int(round(value))
+		hours, remainder = divmod(whole_seconds, 3600)
+		minutes, seconds = divmod(remainder, 60)
+		return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+	rows = []
+	for departure_id, arrival_id in headway_edges:
+		minimum = headway_time_minimums[departure_id, arrival_id]
+		if not np.isfinite(minimum) or minimum < 0:
+			continue
+		departure = events[departure_id]
+		arrival = events[arrival_id]
+		rows.append({
+			"departure_train": str(departure.service_id_external),
+			"arrival_train": str(arrival.service_id_external),
+			"location_id": departure.location_id,
+			"departure_event_id": departure_id,
+			"arrival_event_id": arrival_id,
+			"departure_event": departure.event_type,
+			"arrival_event": arrival.event_type,
+			"departure_time": format_time(departure.initial_time),
+			"arrival_time": format_time(arrival.initial_time),
+			"minimum_headway_seconds": minimum,
+			"minimum_headway": format_time(minimum),
+		})
+		reverse_minimum = headway_time_minimums[arrival_id, departure_id]
+		if np.isfinite(reverse_minimum) and reverse_minimum >= 0:
+			rows.append({
+				"departure_train": str(arrival.service_id_external),
+				"arrival_train": str(departure.service_id_external),
+				"location_id": arrival.location_id,
+				"departure_event_id": arrival_id,
+				"arrival_event_id": departure_id,
+				"departure_event": arrival.event_type,
+				"arrival_event": departure.event_type,
+				"departure_time": format_time(arrival.initial_time),
+				"arrival_time": format_time(departure.initial_time),
+				"minimum_headway_seconds": reverse_minimum,
+				"minimum_headway": format_time(reverse_minimum),
+			})
+
+	output = pd.DataFrame(rows, columns=[
+		"departure_train",
+		"arrival_train",
+		"location_id",
+		"departure_event_id",
+		"arrival_event_id",
+		"departure_event",
+		"arrival_event",
+		"departure_time",
+		"arrival_time",
+		"minimum_headway_seconds",
+		"minimum_headway",
+	])
+	output.to_csv(output_file, index=False, na_rep="")
+	return Path(output_file)
+
+
 def main():
 	"""Load the case study data, populate derived arrays, and build the model."""
 	data = load_and_populate_route_events()
+	headway_file = export_minimum_headways_csv(
+		events=Events,
+		headway_edges=E_headway,
+		headway_time_minimums=headway_time_min,
+	)
+	data["minimum_headways_file"] = headway_file
+	print(f"Minimum headways written to {headway_file}")
 	if data["missing_terminal_platform_nodes"]:
 		print(
 			"Trains without a second platform-assigned node at their "
@@ -2401,6 +2509,10 @@ def main():
 		running_time_minimums=running_time_minimums,
 		stop_matrix=stop_matrix,
 		travel_edges=E_travel,
+		travel_edge_services=[
+			Events[first_id].service_id_internal
+			for first_id, _ in E_travel
+		],
 		dwell_edges=E_dwell,
 		headway_edges=E_headway,
 		headway_time_minimums=headway_time_min,
@@ -2435,6 +2547,7 @@ M = 1e6  # Big-M value used for inactive constraints.
 DWELL_TIME_MAX_FACTOR = 3  # Ratio between maximum and minimum dwell time.
 MAX_DEVIATION = 10 * 60  # Maximum deviation from the initial schedule (s).
 RUNNING_TIME_MAX_FACTOR = 1.5  # Ratio between maximum and minimum running time.
+HEADWAY_TIME_SAFETY_FACTOR = 1.5  # Safety factor applied to running times.
 RUNNING_TIME_SUPPLEMENT={
 	"sprinter": 1.07,
 	"intercity": 1.07,
@@ -2525,6 +2638,7 @@ def build_sequence_optimization_model(
 	running_time_minimums: np.ndarray,
 	stop_matrix: np.ndarray,
 	travel_edges,
+	travel_edge_services,
 	dwell_edges,
 	headway_edges,
 	headway_time_minimums: np.ndarray,
@@ -2616,18 +2730,22 @@ def build_sequence_optimization_model(
 	model.addConstrs(
 		(
 			x[event_key_fn(j)] - x[event_key_fn(i)]
-			>= running_time_minimums[i, j, t]
-			for i, j in travel_edges
-			for t in trains
+			>= running_time_minimums[i, j, service_id]
+			for (i, j), service_id in zip(
+				travel_edges,
+				travel_edge_services,
+			)
 		),
 		name="travel_time_min",
 	)
 	model.addConstrs(
 		(
 			x[event_key_fn(j)] - x[event_key_fn(i)]
-			<= trip_max[i, j, t]
-			for i, j in travel_edges
-			for t in trains
+			<= trip_max[i, j, service_id]
+			for (i, j), service_id in zip(
+				travel_edges,
+				travel_edge_services,
+			)
 		),
 		name="travel_time_max",
 	)
@@ -2667,7 +2785,7 @@ def build_sequence_optimization_model(
 	model.addConstrs(
 		(
 			x[event_key_fn(i)] - x[event_key_fn(j)]
-			>= headway_time_minimums[i, j]
+			>= headway_time_minimums[j, i]
 			* (1 - a[event_key_fn(i), event_key_fn(j)])
 			- big_m * a[event_key_fn(i), event_key_fn(j)]
 			for i, j in headway_edges
@@ -2683,11 +2801,11 @@ def build_sequence_optimization_model(
 	)
 
 	model.addConstrs(#part 2 of linearizing absolute value for deviation from initial schedule
-			(
-				ad[event_key_fn(i)] >= initial_schedule_times[i] - x[event_key_fn(i)]
-				for i in initial_event_ids
-			)
+		(
+			ad[event_key_fn(i)] >= initial_schedule_times[i] - x[event_key_fn(i)]
+			for i in initial_event_ids
 		)
+	)
 
 	return model, {
 		"x": x,
