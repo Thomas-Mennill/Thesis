@@ -1,4 +1,4 @@
-"""Export NS train stops at selected stations to a CSV file.
+"""Export NS train stops at selected stations to a Parquet file.
 
 The NS Reisinformatie API key must be supplied through the NS_API_KEY
 environment variable.  The station input file may contain station names,
@@ -7,13 +7,12 @@ with '#' are ignored.
 
 Example:
     $env:NS_API_KEY = "your-key"
-    python NS_Station_Schedule_To_CSV.py stations.txt -o selected_trains.csv
+    python NS_Station_Schedule_To_CSV.py -o selected_trains.parquet
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import os
 import time
@@ -23,9 +22,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+import pandas as pd
+
 
 DEFAULT_BASE_URL = "https://ns.nl"
 DEFAULT_TIMEOUT = 30
+STATIONS_FILE = Path("stations.txt")
 OUTPUT_FIELDS = (
     "train_number",
     "vehicle",
@@ -231,10 +233,10 @@ def export_schedule(stations_file: Path, output_file: Path, api_key: str, base_u
             time.sleep(delay)
 
     rows.sort(key=lambda row: (row["event_time"], row["train_number"], row["station"], row["event_type"]))
-    with output_file.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=OUTPUT_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
+    pd.DataFrame(rows, columns=OUTPUT_FIELDS).to_parquet(
+        output_file,
+        index=False,
+    )
     return len(rows)
 
 
@@ -242,8 +244,18 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export NS train arrivals and departures at stations from a text file."
     )
-    parser.add_argument("stations_file", type=Path, help="Text file with one station name/code per line")
-    parser.add_argument("-o", "--output", type=Path, default=Path("ns_station_schedule.csv"))
+    parser.add_argument(
+        "--stations-file",
+        type=Path,
+        default=STATIONS_FILE,
+        help=f"Text file with one station name/code per line (default: {STATIONS_FILE})",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("ns_station_schedule.parquet"),
+    )
     parser.add_argument("--base-url", default=os.getenv("NS_API_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--delay", type=float, default=0.2, help="Seconds between API requests")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)

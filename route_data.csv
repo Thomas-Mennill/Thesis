@@ -1,7 +1,7 @@
-﻿Route,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16
-Route Type,Sprinter,Sprinter,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,Maglev,Maglev
-Train Type,SLT-6,SLT-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,Maglev,Maglev
-Priority,4,4,3,3,3,3,3,3,3,3,3,3,3,3,1,1
-Track Type,L,L,E,E,E,E,E,E,E,E,E,E,E,E,M,M
-Stop Duration (s),20,20,60,60,60,60,60,60,60,60,60,60,60,60,120,120
-Stop Count,8,8,3,3,3,3,3,3,3,3,3,3,3,3,2,2
+﻿Route,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
+Route Type,Sprinter,Sprinter,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,Maglev,Maglev,Freight,Freight,Sprinter,Sprinter,Sprinter,Sprinter
+Train Type,SLT-6,SLT-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,VIRM-6+VIRM-6,Maglev,Maglev,Freight Train Full,Freight Train Full,SLT-6,SLT-6,SLT-6,SLT-6
+Priority,4,4,3,3,3,3,3,3,3,3,3,3,3,3,1,1,5,5,4,4,4,4
+Track Type,L,L,E,E,E,E,E,E,E,E,E,E,E,E,M,M,L,L,L,L,L,L
+Stop Duration (s),20,20,60,60,60,60,60,60,60,60,60,60,60,60,120,120,0,0,20,20,20,20
+Stop Count,8,8,3,3,3,3,3,3,3,3,3,3,3,3,2,2,2,2,10,10,4,4

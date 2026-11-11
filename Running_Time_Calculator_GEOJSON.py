@@ -32,9 +32,9 @@ ROUTE_DATA_FILE = "route_data.csv"
 ROLLING_STOCK_DATA_FILE = "rolling_stock_data.csv"
 INFRASTRUCTURE_GRAPH_FILE = "case_study_network.gpickle"
 RESULTS_FILE = "running_time_results.csv"
-NODE_RESULTS_FILE = "running_time_between_nodes.csv"
-BRAKING_TIME_FILE = "braking_times_by_node.csv"
-ROUTE_CSV_FOLDER = "running_time_by_route"
+NODE_RESULTS_FILE = "running_time_between_nodes.parquet"
+BRAKING_TIME_FILE = "braking_times_by_node.parquet"
+ROUTE_DATA_FOLDER = "running_time_by_route"
 ROUTE_MAP_FOLDER = "route_speed_maps"
 train_type = "conventional"
 
@@ -259,8 +259,8 @@ def load_rolling_stock_data(csv_file=ROLLING_STOCK_DATA_FILE):
         if point > 0
     ]
 
-#writes braking times to a CSV file
-def write_braking_time_csv(route_data_by_train, train_types_by_train, rolling_stock_data, output_file=BRAKING_TIME_FILE,):
+# Write braking times to a Parquet file.
+def write_braking_time_parquet(route_data_by_train, train_types_by_train, rolling_stock_data, output_file=BRAKING_TIME_FILE,):
     """Write stopping times before every node in each train route.
 
     Rows are ordered route-node ordinals and columns are train routes. Each
@@ -354,21 +354,22 @@ def write_braking_time_csv(route_data_by_train, train_types_by_train, rolling_st
         for values in route_nodes.values()
         for node_id in values
     })
-    with open(output_file, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(["Node"] + [
-            f"Route {train_id}" for train_id in route_ids
-        ])
-        for node_id in node_ids:
-            writer.writerow([
+    output = pd.DataFrame(
+        [
+            [
                 f"Node {node_id}",
                 *[
-                    values.get(node_id, "")
+                    values.get(node_id, np.nan)
                     for values in (
                         route_nodes[train_id] for train_id in route_ids
                     )
                 ],
-            ])
+            ]
+            for node_id in node_ids
+        ],
+        columns=["Node"] + [f"Route {train_id}" for train_id in route_ids],
+    )
+    output.to_parquet(output_file, index=False)
 
 #handles multiple train sets being coupled together
 def resolve_rolling_stock_attributes(vehicle_type, rolling_stock_data,):
@@ -1534,8 +1535,8 @@ def _maximum_speed_between_distances(start_distance, end_distance, positions, ve
     return float(np.max(edge_velocities) * 3.6)
 
 
-def write_route_node_csvs(route_data_by_train, station_stops_by_train, output_folder=ROUTE_CSV_FOLDER,):
-    """Write one schedule-ordered station travel-time CSV per train."""
+def write_route_node_parquets(route_data_by_train, station_stops_by_train, output_folder=ROUTE_DATA_FOLDER,):
+    """Write one schedule-ordered station travel-time Parquet file per train."""
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
     for train_id, (_route_network, results) in route_data_by_train.items():
@@ -1546,31 +1547,26 @@ def write_route_node_csvs(route_data_by_train, station_stops_by_train, output_fo
         )
         times = np.asarray(results[0])
         positions = np.asarray(results[1])
-        with (output_path / f"train_{train_id}.csv").open(
-            "w",
-            encoding="utf-8",
-            newline="",
-        ) as handle:
-            writer = csv.writer(handle)
-            writer.writerow([
-                "Node",
-                "Travel time to following node (s)",
-            ])
-            for index, event in enumerate(schedule_events):
-                if index + 1 < len(schedule_events):
-                    next_event = schedule_events[index + 1]
-                    travel_time = float(np.interp(
-                        next_event["distance"],
-                        positions,
-                        times,
-                    ) - np.interp(
-                        event["distance"],
-                        positions,
-                        times,
-                    ))
-                else:
-                    travel_time = ""
-                writer.writerow([station_stops[index], travel_time])
+        rows = []
+        for index, event in enumerate(schedule_events):
+            if index + 1 < len(schedule_events):
+                next_event = schedule_events[index + 1]
+                travel_time = float(np.interp(
+                    next_event["distance"],
+                    positions,
+                    times,
+                ) - np.interp(
+                    event["distance"],
+                    positions,
+                    times,
+                ))
+            else:
+                travel_time = np.nan
+            rows.append([station_stops[index], travel_time])
+        pd.DataFrame(
+            rows,
+            columns=["Node", "Travel time to following node (s)"],
+        ).to_parquet(output_path / f"train_{train_id}.parquet", index=False)
 
 
 def display_speed_profile_graphs(route_data_by_train, group_examples,):
@@ -1632,7 +1628,7 @@ def display_speed_profile_graphs(route_data_by_train, group_examples,):
     plt.show()
 
 
-def main(route_graph_file=ROUTE_GRAPH_FILE, existing_route_stops_file=EXISTING_ROUTE_STOPS_FILE, new_route_stops_file=NEW_ROUTE_STOPS_FILE, route_data_file=ROUTE_DATA_FILE, rolling_stock_data_file=ROLLING_STOCK_DATA_FILE, results_file=RESULTS_FILE, node_results_file=NODE_RESULTS_FILE, infrastructure_graph_file=INFRASTRUCTURE_GRAPH_FILE, route_csv_folder=ROUTE_CSV_FOLDER, route_map_folder=ROUTE_MAP_FOLDER, braking_time_file=BRAKING_TIME_FILE,):
+def main(route_graph_file=ROUTE_GRAPH_FILE, existing_route_stops_file=EXISTING_ROUTE_STOPS_FILE, new_route_stops_file=NEW_ROUTE_STOPS_FILE, route_data_file=ROUTE_DATA_FILE, rolling_stock_data_file=ROLLING_STOCK_DATA_FILE, results_file=RESULTS_FILE, node_results_file=NODE_RESULTS_FILE, infrastructure_graph_file=INFRASTRUCTURE_GRAPH_FILE, route_csv_folder=ROUTE_DATA_FOLDER, route_map_folder=ROUTE_MAP_FOLDER, braking_time_file=BRAKING_TIME_FILE,):
     """Calculate running times and grouped route outputs."""
     with open(route_graph_file, "rb") as handle:
         route_graphs = pickle.load(handle)
@@ -1703,12 +1699,12 @@ def main(route_graph_file=ROUTE_GRAPH_FILE, existing_route_stops_file=EXISTING_R
             f"max {max_speed:.2f} km/h"
         )
 
-    write_route_node_csvs(
+    write_route_node_parquets(
         route_data_by_train,
         station_stops_by_train,
         route_csv_folder,
     )
-    write_braking_time_csv(
+    write_braking_time_parquet(
         route_data_by_train,
         train_types_by_train,
         rolling_stock_data,
@@ -1744,9 +1740,9 @@ def main(route_graph_file=ROUTE_GRAPH_FILE, existing_route_stops_file=EXISTING_R
         ])
         writer.writerows(result_rows)
 
-    with open(node_results_file, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow([
+    pd.DataFrame(
+        node_result_rows,
+        columns=[
             "Train ID",
             "Edge ID",
             "Origin Node",
@@ -1754,8 +1750,8 @@ def main(route_graph_file=ROUTE_GRAPH_FILE, existing_route_stops_file=EXISTING_R
             "Distance (m)",
             "Minimum Running Time (s)",
             "Maximum Speed (km/h)",
-        ])
-        writer.writerows(node_result_rows)
+        ],
+    ).to_parquet(node_results_file, index=False)
 
 
 

@@ -56,8 +56,10 @@ def load_train_schedule(csv_file):
 
 	Each train occupies three columns: event, station, and time. The train ID
 	is in the first row of the station column; subsequent rows contain arrival
-	and departure events. The returned DataFrame has one row per event with
-	``train_id``, ``event``, ``station``, and ``time`` columns.
+	and departure events. Numeric endpoint values are node IDs; other values
+	remain station names. The returned DataFrame has one row per event with
+	``train_id``, ``event``, ``station``, ``endpoint_type``, ``node_id``, and
+	``time`` columns.
 	"""
 	schedule = pd.read_csv(
 		csv_file,
@@ -108,28 +110,42 @@ def load_train_schedule(csv_file):
 					f"Event, station, and time must all be present at row "
 					f"{row + 1}, columns {event_column + 1}-{time_column + 1}"
 				)
+			endpoint_type = "node" if re.fullmatch(
+				r"[+-]?\d+",
+				station,
+			) else "station"
 			stops.append(
 				{
 					"train_id": train_id,
 					"event": event,
 					"station": station,
+					"endpoint_type": endpoint_type,
+					"node_id": (
+						int(station)
+						if endpoint_type == "node"
+						else None
+					),
 					"time": time_to_seconds(earliest_time),
 					"earliest_time": time_to_seconds(earliest_time),
 					"latest_time": time_to_seconds(latest_time),
 				}
 			)
 
-	return pd.DataFrame(
+	result = pd.DataFrame(
 		stops,
 		columns=[
 			"train_id",
 			"event",
 			"station",
+			"endpoint_type",
+			"node_id",
 			"time",
 			"earliest_time",
 			"latest_time",
 		],
 	)
+	result["node_id"] = pd.array(result["node_id"], dtype="Int64")
+	return result
 
 def load_rolling_stock_data(csv_file="rolling_stock_data.csv"):
 	"""Load rolling-stock data into the global ``U`` DataFrame.
@@ -143,59 +159,45 @@ def load_rolling_stock_data(csv_file="rolling_stock_data.csv"):
 	return U
 
 
-def load_braking_times(csv_file="braking_times_by_node.csv"):
+def load_braking_times(parquet_file="braking_times_by_node.parquet"):
 	"""Load braking times indexed by route-node ID and route ID."""
 	braking_times = {}
-	with Path(csv_file).open(
-		encoding="utf-8-sig",
-		newline="",
-	) as braking_file:
-		reader = csv.reader(braking_file)
-		header = next(reader, None)
-		if not header or len(header) < 2:
+	frame = pd.read_parquet(parquet_file)
+	if len(frame.columns) < 2:
+		raise ValueError(
+			f"Braking-time file {parquet_file!r} has no route columns"
+		)
+	for column in frame.columns[1:]:
+		if not str(column).strip().casefold().startswith("route "):
+			raise ValueError(f"Invalid braking-time route column {column!r}")
+	for row_number, (_, row) in enumerate(frame.iterrows(), start=2):
+		node_label = str(row.iloc[0]).strip()
+		if not node_label.casefold().startswith("node "):
 			raise ValueError(
-				f"Braking-time file {csv_file!r} has no route columns"
+				f"Invalid braking-time node label {node_label!r} "
+				f"on row {row_number}"
 			)
-		route_ids = []
-		for column in header[1:]:
-			label = column.strip()
-			if not label.casefold().startswith("route "):
-				raise ValueError(
-					f"Invalid braking-time route column {column!r}"
-				)
-			route_ids.append(label[6:].strip())
-		for row_number, row in enumerate(reader, start=2):
-			if not row or not row[0].strip():
+		try:
+			node_id = int(node_label[5:].strip())
+		except ValueError as error:
+			raise ValueError(
+				f"Invalid braking-time node ID {node_label!r} "
+				f"on row {row_number}"
+			) from error
+		if node_id in braking_times:
+			raise ValueError(f"Duplicate braking-time node ID {node_id}")
+		values = {}
+		for column in frame.columns[1:]:
+			if pd.isna(row[column]):
 				continue
-			node_label = row[0].strip()
-			if not node_label.casefold().startswith("node "):
-				raise ValueError(
-					f"Invalid braking-time node label {node_label!r} "
-					f"on row {row_number}"
-				)
 			try:
-				node_id = int(node_label[5:].strip())
-			except ValueError as error:
+				values[str(column)[6:].strip()] = float(row[column])
+			except (TypeError, ValueError) as error:
 				raise ValueError(
-					f"Invalid braking-time node ID {node_label!r} "
-					f"on row {row_number}"
+					f"Invalid braking time for node {node_id}, "
+					f"route {column!r}"
 				) from error
-			if node_id in braking_times:
-				raise ValueError(
-					f"Duplicate braking-time node ID {node_id}"
-				)
-			values = {}
-			for column, route_id in enumerate(route_ids, start=1):
-				if column >= len(row) or not row[column].strip():
-					continue
-				try:
-					values[route_id] = float(row[column])
-				except ValueError as error:
-					raise ValueError(
-						f"Invalid braking time for node {node_id}, "
-						f"route {route_id!r}"
-					) from error
-			braking_times[node_id] = values
+		braking_times[node_id] = values
 	return braking_times
 
 
@@ -564,7 +566,7 @@ def load_track_segments(pickle_file):
 	return track_segments, L
 
 
-def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl", existing_schedule_file="existing_rail_routes.csv", additional_schedule_file="additional_rail_routes.csv", route_data_file="route_data.csv", braking_time_file="braking_times_by_node.csv",):
+def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl", existing_schedule_file="existing_rail_routes.csv", additional_schedule_file="additional_rail_routes.csv", route_data_file="route_data.csv", braking_time_file="braking_times_by_node.parquet",):
 	"""Load route graphs and schedules and populate all route event sets.
 
 	The returned ``V_*`` values contain event IDs, while ``Events`` contains
@@ -1014,6 +1016,7 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 		related_route_id=None,
 		earliest_time=None,
 		latest_time=None,
+		endpoint_type="station",
 	):
 		event_id = len(Events)
 		is_initial = (
@@ -1050,6 +1053,7 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 			route_id=route_id,
 			related_route_id=related_route_id,
 			node=node,
+			endpoint_type=endpoint_type,
 		)
 		item.window_min = earliest_seconds
 		item.window_max = latest_seconds
@@ -1153,7 +1157,10 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 			)
 		final_station = (
 			key(route["rows"].iloc[-1]["station"])
-			if not route["rows"].empty
+			if (
+				not route["rows"].empty
+				and route["rows"].iloc[-1]["endpoint_type"] == "station"
+			)
 			else None
 		)
 		if final_station is not None and len(
@@ -1167,6 +1174,8 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 					station_nodes.setdefault(station, []).append(node)
 		rows_by_station = {}
 		for row in route["rows"].itertuples():
+			if row.endpoint_type != "station":
+				continue
 			rows_by_station.setdefault(key(row.station), []).append(row)
 		route_stations = list(station_nodes)
 		for station_index, station in enumerate(route_stations):
@@ -1203,6 +1212,43 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 					time_at(route, node),
 				)
 				V_run_through.append(event_id)
+				station_activity_events.append({
+					"route": route_key,
+					"station": station,
+					"event_type": "run_through",
+					"event_id": event_id,
+				})
+		for row in route["rows"].itertuples():
+			if row.endpoint_type != "node":
+				continue
+			node = row.node_id
+			if node not in route["distance"]:
+				raise ValueError(
+					f"Schedule endpoint node {node!r} is not on route "
+					f"{route_key!r}"
+				)
+			event_type = str(row.event).strip().casefold()
+			target = (
+				V_departure
+				if event_type in {"depart", "departure"}
+				else V_arrival
+			)
+			event_id = add_event(
+				event_type,
+				route_key,
+				node,
+				row.time,
+				earliest_time=row.earliest_time,
+				latest_time=row.latest_time,
+				endpoint_type="node",
+			)
+			target.append(event_id)
+			station_activity_events.append({
+				"route": route_key,
+				"station": str(row.station),
+				"event_type": event_type,
+				"event_id": event_id,
+			})
 
 	route_node_events = {}
 	for route_key, route in route_data.items():
@@ -1242,11 +1288,19 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 				for station in station_names(route["graph"], node):
 					station_nodes.setdefault(station, []).append(node)
 			for row in route["rows"].itertuples():
-				station = key(row.station)
-				candidates = station_nodes.get(station, [])
-				if not candidates:
-					continue
-				node = candidates[0]
+				if row.endpoint_type == "node":
+					node = row.node_id
+					if node not in route["distance"]:
+						raise ValueError(
+							f"Schedule endpoint node {node!r} is not on "
+							f"route {route_key!r}"
+						)
+				else:
+					station = key(row.station)
+					candidates = station_nodes.get(station, [])
+					if not candidates:
+						continue
+					node = candidates[0]
 				bounded_events.append((
 					route["distance"].get(node, 0),
 					time_to_seconds(row.earliest_time),
@@ -1295,6 +1349,12 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 			item for item in station_activity_events
 			if item["route"] == route_id
 		]
+		route_events.sort(
+			key=lambda item: route["distance"].get(
+				Events[item["event_id"]].location_id,
+				float("inf"),
+			)
+		)
 		departures = [
 			item["event_id"] for item in route_events
 			if item["event_type"] in {"depart", "departure"}
@@ -1354,7 +1414,10 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 			origin_activity = activity_events_by_node.get(origin_node_id, {})
 			origin_id = origin_activity.get(
 				"depart",
-				origin_activity.get("departure", origin_id),
+				origin_activity.get(
+					"departure",
+					origin_activity.get("run_through", origin_id),
+				),
 			)
 			destination_id = route_node_events[route_key][edge["destination"]]
 			destination_graph_node = graph_node(graph, edge["destination"])
@@ -1368,7 +1431,10 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 			)
 			destination_id = destination_activity.get(
 				"arrive",
-				destination_activity.get("arrival", destination_id),
+				destination_activity.get(
+					"arrival",
+					destination_activity.get("run_through", destination_id),
+				),
 			)
 			if (
 				origin_stations & destination_stations
@@ -1386,6 +1452,12 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 			item for item in station_activity_events
 			if item["route"] == route_key
 		]
+		route_events.sort(
+			key=lambda item: route_data[route_key]["distance"].get(
+				Events[item["event_id"]].location_id,
+				float("inf"),
+			)
+		)
 		for arrival in route_events:
 			if arrival["event_type"] not in {"arrive", "arrival"}:
 				continue
@@ -1393,7 +1465,13 @@ def load_and_populate_route_events(route_graph_file="case_study_route_graphs.pkl
 				item for item in route_events
 				if item["station"] == arrival["station"]
 				and item["event_type"] in {"depart", "departure"}
-				and item["event_id"] > arrival["event_id"]
+				and route_data[route_key]["distance"].get(
+					Events[item["event_id"]].location_id,
+					float("inf"),
+				) >= route_data[route_key]["distance"].get(
+					Events[arrival["event_id"]].location_id,
+					float("inf"),
+				)
 			]
 			if departures:
 				E_dwell.append((
@@ -1723,7 +1801,7 @@ def populate_l(service_array=None, same_service_matrix=None):
 	return same_service_matrix
 
 def populate_running_times(
-	running_time_file="running_time_between_nodes.csv",
+	running_time_file="running_time_between_nodes.parquet",
 	events=None,
 	edges=None,
 	services=None,
@@ -1748,25 +1826,21 @@ def populate_running_times(
 		for service in services
 	}
 	times = {}
-	with Path(running_time_file).open(
-		encoding="utf-8-sig",
-		newline="",
-	) as handle:
-		for row in csv.DictReader(handle):
-			try:
-				train_id = str(row["Train ID"]).strip()
-				origin = int(row["Origin Node"])
-				destination = int(row["Destination Node"])
-				minimum = float(row["Minimum Running Time (s)"])
-			except (KeyError, TypeError, ValueError) as error:
-				raise ValueError(
-					f"Invalid running-time row: {row!r}"
-				) from error
-			if not np.isfinite(minimum) or minimum < 0:
-				raise ValueError(
-					f"Invalid minimum running time {minimum!r}"
-				)
-			times[(train_id, origin, destination)] = minimum
+	for row in pd.read_parquet(running_time_file).to_dict("records"):
+		try:
+			train_id = str(row["Train ID"]).strip()
+			origin = int(row["Origin Node"])
+			destination = int(row["Destination Node"])
+			minimum = float(row["Minimum Running Time (s)"])
+		except (KeyError, TypeError, ValueError) as error:
+			raise ValueError(
+				f"Invalid running-time row: {row!r}"
+			) from error
+		if not np.isfinite(minimum) or minimum < 0:
+			raise ValueError(
+				f"Invalid minimum running time {minimum!r}"
+			)
+		times[(train_id, origin, destination)] = minimum
 
 	running_time_min.fill(-M)
 	running_time_max.fill(M)
@@ -1979,6 +2053,110 @@ def event_key(index: int) -> EventKey:
 	except KeyError as error:
 		raise KeyError(f"Unknown event index {index!r}") from error
 
+
+def validate_solution_event_order(
+	model,
+	x,
+	events=None,
+	route_graphs=None,
+):
+	"""Check that solved event times follow each route's directed node order."""
+	if model.SolCount <= 0:
+		raise ValueError("Cannot validate event order because no solution exists")
+	events = Events if events is None else events
+	route_graphs = {} if route_graphs is None else route_graphs
+	events_by_route_and_node = {}
+	for item in events:
+		route_id = str(item.route_id).strip()
+		events_by_route_and_node.setdefault(
+			(route_id, int(item.location_id)),
+			[],
+		).append(item)
+
+	def movement_events(node_events):
+		operational_events = [
+			item for item in node_events
+			if item.event_type in {
+				"run_through",
+				"arrive",
+				"arrival",
+				"depart",
+				"departure",
+			}
+		]
+		return operational_events or [
+			item for item in node_events
+			if item.event_type == "route_node"
+		]
+
+	violations = []
+	for route_id, graph in route_graphs.items():
+		route_key = str(route_id).strip()
+		route_nodes = [
+			int(node_id)
+			for node_id in graph.graph.get("route_node_ids", ())
+		]
+		if not route_nodes:
+			continue
+		node_times = {}
+		for node_id in route_nodes:
+			node_events = movement_events(
+				events_by_route_and_node.get((route_key, node_id), [])
+			)
+			if not node_events:
+				violations.append({
+					"route_id": route_key,
+					"reason": "missing route event",
+					"node": node_id,
+				})
+				continue
+			node_times[node_id] = [
+				(float(x[item.event_key].X), item.event_id, item.event_type)
+				for item in node_events
+			]
+
+		for first_node, second_node in zip(route_nodes, route_nodes[1:]):
+			first_times = node_times.get(first_node)
+			second_times = node_times.get(second_node)
+			if not first_times or not second_times:
+				continue
+			first_time = max(first_times)
+			second_time = min(second_times)
+			if first_time[0] > second_time[0]:
+				violations.append({
+					"route_id": route_key,
+					"reason": "event order violation",
+					"first_node": first_node,
+					"first_event": first_time,
+					"second_node": second_node,
+					"second_event": second_time,
+				})
+
+	if violations:
+		details = []
+		for violation in violations[:20]:
+			if violation["reason"] == "missing route event":
+				details.append(
+					f"route {violation['route_id']}: missing node "
+					f"{violation['node']}"
+				)
+			else:
+				details.append(
+					f"route {violation['route_id']}: node "
+					f"{violation['first_node']} event "
+					f"{violation['first_event'][1]} at "
+					f"{violation['first_event'][0]:.3f} occurs after node "
+					f"{violation['second_node']} event "
+					f"{violation['second_event'][1]} at "
+					f"{violation['second_event'][0]:.3f}"
+				)
+		raise RuntimeError(
+			f"Solution event-order check found {len(violations)} violation(s): "
+			+ "; ".join(details)
+		)
+	return True
+
+
 def build_train_schedule_output(model, x, events=None, route_graphs=None):
 	"""Build a station-only schedule report from the solved event-time variables."""
 	if model.SolCount <= 0:
@@ -1999,7 +2177,9 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 				graph = None
 		return graph
 
-	def station_label(route_id, location_id):
+	def station_label(route_id, location_id, endpoint_type="station"):
+		if endpoint_type == "node":
+			return str(location_id)
 		graph = route_graph(route_id)
 		if graph is not None:
 			for node, attributes in graph.nodes(data=True):
@@ -2066,6 +2246,43 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 		for schedule_index, schedule in enumerate(scheduled_rows):
 			for row in schedule.itertuples():
 				graph = route_graph(row.train_id)
+				if row.endpoint_type == "node":
+					node_id_value = row.node_id
+					if node_id_value not in graph.graph.get(
+						"route_node_ids",
+						(),
+					):
+						continue
+					item = route_node_events.get(
+						(str(row.train_id), node_id_value)
+					)
+					if item is None:
+						continue
+					station_events.append({
+						"event": (
+							"arrival"
+							if row.event.casefold() in {"arrive", "arrival"}
+							else "departure"
+						),
+						"event_id": item.event_id,
+						"location_id": item.location_id,
+						"route_id": item.route_id,
+						"service_id_external": item.service_id_external,
+						"event_key": item.event_key,
+						"is_initial": schedule_index == 0,
+						"service_id_internal": item.service_id_internal,
+						"endpoint_type": "node",
+						"original_time": (
+							row.time if schedule_index == 0 else None
+						),
+						"window_min": (
+							row.earliest_time if schedule_index == 0 else None
+						),
+						"window_max": (
+							row.latest_time if schedule_index == 0 else None
+						),
+					})
+					continue
 				station_key = " ".join(str(row.station).split()).casefold()
 				candidates = []
 				for node_id in graph.graph.get("route_node_ids", ()):
@@ -2180,6 +2397,9 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 			"station": station_label(
 				item.route_id if hasattr(item, "route_id") else item["route_id"],
 				item.location_id if hasattr(item, "location_id") else item["location_id"],
+				item.endpoint_type
+				if hasattr(item, "endpoint_type")
+				else item.get("endpoint_type", "station"),
 			),
 			"location_id": (
 				item.location_id if hasattr(item, "location_id")
@@ -2190,6 +2410,7 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 			"window_min_seconds": window_min,
 			"window_max_seconds": window_max,
 			"event_id": event_id,
+			"service_id_internal": service_id,
 		})
 
 	def route_sort_key(route_id):
@@ -2203,6 +2424,45 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 		route_position(row["route_id"], row["location_id"]),
 		row["event_id"],
 	))
+	minimum_edges_by_route = {}
+	for first_id, second_id in E_running:
+		first = events[first_id]
+		second = events[second_id]
+		if first.route_id != second.route_id:
+			continue
+		minimum = running_time_min[
+			first_id,
+			second_id,
+			first.service_id_internal,
+		]
+		minimum_edges_by_route.setdefault(
+			(str(first.route_id), first.service_id_internal),
+			[],
+		).append((
+			first.location_id,
+			second.location_id,
+			minimum,
+		))
+
+	def minimum_travel_time(route_id, service_id, origin, destination):
+		edges = minimum_edges_by_route.get(
+			(str(route_id), service_id),
+			(),
+		)
+		total = 0.0
+		started = False
+		for edge_origin, edge_destination, minimum in edges:
+			if not started:
+				if edge_origin != origin:
+					continue
+				started = True
+			if not np.isfinite(minimum) or minimum < 0:
+				return np.nan
+			total += minimum
+			if edge_destination == destination:
+				return total
+		return np.nan
+
 	last_departure = {}
 	last_arrival = {}
 	last_scheduled_departure = {}
@@ -2222,6 +2482,7 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 				)
 			else:
 				row["travel_time_seconds"] = np.nan
+			row["minimum_travel_time_seconds"] = np.nan
 			cumulative_scheduled_travel_time.setdefault(route_id, 0.0)
 			row["cumulative_scheduled_travel_time_seconds"] = (
 				cumulative_scheduled_travel_time[route_id]
@@ -2230,9 +2491,16 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 		departure = last_departure.get(route_id)
 		if departure is None or departure["location_id"] == row["location_id"]:
 			row["travel_time_seconds"] = np.nan
+			row["minimum_travel_time_seconds"] = np.nan
 		else:
 			row["travel_time_seconds"] = (
 				row["time_seconds"] - departure["time_seconds"]
+			)
+			row["minimum_travel_time_seconds"] = minimum_travel_time(
+				route_id,
+				row["service_id_internal"],
+				departure["location_id"],
+				row["location_id"],
 			)
 		last_arrival[route_id] = row
 		scheduled_departure = last_scheduled_departure.get(route_id)
@@ -2265,7 +2533,7 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 	if schedule.empty:
 		return pd.DataFrame(columns=[
 			"train", "event", "station", "time", "change_from_original",
-			"travel_time", "cumulative_travel_time",
+			"travel_time", "minimum_travel_time", "cumulative_travel_time",
 			"cumulative_scheduled_travel_time",
 			"minimum_time_window", "maximum_time_window",
 		])
@@ -2281,6 +2549,9 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 	schedule["travel_time"] = schedule["travel_time_seconds"].map(
 		format_duration
 	)
+	schedule["minimum_travel_time"] = schedule[
+		"minimum_travel_time_seconds"
+	].map(format_duration)
 	schedule["cumulative_travel_time"] = schedule[
 		"cumulative_travel_time_seconds"
 	].map(
@@ -2304,6 +2575,7 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 		"time",
 		"change_from_original",
 		"travel_time",
+		"minimum_travel_time",
 		"cumulative_travel_time",
 		"cumulative_scheduled_travel_time",
 		"minimum_time_window",
@@ -2311,14 +2583,15 @@ def build_train_schedule_output(model, x, events=None, route_graphs=None):
 	]]
 
 
-def export_train_schedule_csv(schedule, output_file="train_schedule.csv"):
-	"""Export the station-only schedule as horizontally separated train blocks."""
+def _horizontal_train_schedule(schedule):
+	"""Build the horizontally separated train-block schedule representation."""
 	block_columns = [
 		"event",
 		"station",
 		"time",
 		"change_from_original",
 		"travel_time",
+		"minimum_travel_time",
 		"cumulative_travel_time",
 		"cumulative_scheduled_travel_time",
 		"minimum_time_window",
@@ -2333,6 +2606,7 @@ def export_train_schedule_csv(schedule, output_file="train_schedule.csv"):
 			"Time",
 			"Change from original",
 			"Travel time",
+			"Minimum travel time",
 			"Cumulative travel time",
 			"Cumulative scheduled travel time",
 			"Minimum time window",
@@ -2340,6 +2614,7 @@ def export_train_schedule_csv(schedule, output_file="train_schedule.csv"):
 		]
 		block.loc[-1] = [
 			f"Train {train}",
+			"",
 			"",
 			"",
 			"",
@@ -2360,6 +2635,7 @@ def export_train_schedule_csv(schedule, output_file="train_schedule.csv"):
 			"Time",
 			"Change from original",
 			"Travel time",
+			"Minimum travel time",
 			"Cumulative travel time",
 			"Cumulative scheduled travel time",
 			"Minimum time window",
@@ -2373,15 +2649,112 @@ def export_train_schedule_csv(schedule, output_file="train_schedule.csv"):
 				output_blocks.append(pd.DataFrame({"": [""] * len(block)}))
 		output = pd.concat(output_blocks, axis=1)
 
-	output.to_csv(output_file, index=False, na_rep="")
+	return output
+
+
+def export_train_schedule_csv(schedule, output_file="train_schedule.csv"):
+	"""Export the schedule in the human-readable, horizontally separated format."""
+	output = _horizontal_train_schedule(schedule)
+	output.to_csv(output_file, index=False)
 	return Path(output_file)
 
 
-def export_minimum_headways_csv(
+def export_train_schedule_parquet(schedule, output_file="train_schedule.parquet"):
+	"""Export the schedule in a normalized format suitable for Parquet."""
+	columns = [
+		"train",
+		"event",
+		"station",
+		"time",
+		"change_from_original",
+		"travel_time",
+		"minimum_travel_time",
+		"cumulative_travel_time",
+		"cumulative_scheduled_travel_time",
+		"minimum_time_window",
+		"maximum_time_window",
+	]
+	output = schedule.reindex(columns=columns).copy()
+	output.to_parquet(output_file, index=False)
+	return Path(output_file)
+
+
+def export_train_event_times_parquet(
+	events=None,
+	x=None,
+	route_graphs=None,
+	output_file="train_event_times.parquet",
+):
+	"""Export every solved event time for every train in long format."""
+	events = Events if events is None else events
+	if x is None:
+		raise ValueError("Solved event-time variables are required")
+	route_graphs = {} if route_graphs is None else route_graphs
+
+	def station_label(route_id, location_id):
+		graph = route_graphs.get(route_id)
+		if graph is None:
+			graph = route_graphs.get(str(route_id).strip())
+		if graph is None:
+			try:
+				graph = route_graphs.get(int(route_id))
+			except (TypeError, ValueError):
+				graph = None
+		if graph is not None:
+			for node, attributes in graph.nodes(data=True):
+				if attributes.get("node_id", node) != location_id:
+					continue
+				names = set(attributes.get("platform_stations", ()))
+				station = attributes.get("station")
+				if station not in (None, "", "None"):
+					names.add(station)
+				names = sorted(str(name) for name in names if name)
+				if names:
+					return " / ".join(names)
+		return str(location_id)
+
+	def format_time(seconds):
+		whole_seconds = int(round(seconds))
+		hours, remainder = divmod(whole_seconds, 3600)
+		minutes, seconds_part = divmod(remainder, 60)
+		return f"{hours:02d}:{minutes:02d}:{seconds_part:02d}"
+
+	rows = []
+	for item in events:
+		event_key_value = item.event_key
+		rows.append({
+			"train": str(item.service_id_external),
+			"route_id": item.route_id,
+			"event_id": item.event_id,
+			"event_type": item.event_type,
+			"location_id": item.location_id,
+			"station": station_label(item.route_id, item.location_id),
+			"time": format_time(x[event_key_value].X),
+			"original_time": (
+				"" if item.initial_time is None
+				else format_time(item.initial_time)
+			),
+		})
+
+	output = pd.DataFrame(rows, columns=[
+		"train",
+		"route_id",
+		"event_id",
+		"event_type",
+		"location_id",
+		"station",
+		"time",
+		"original_time",
+	])
+	output.to_parquet(output_file, index=False)
+	return Path(output_file)
+
+
+def export_minimum_headways_parquet(
 	events=None,
 	headway_edges=None,
 	headway_time_minimums=None,
-	output_file="minimum_headways.csv",
+	output_file="minimum_headways.parquet",
 ):
 	"""Export every calculated minimum headway between train event pairs."""
 	events = Events if events is None else events
@@ -2449,14 +2822,14 @@ def export_minimum_headways_csv(
 		"minimum_headway_seconds",
 		"minimum_headway",
 	])
-	output.to_csv(output_file, index=False, na_rep="")
+	output.to_parquet(output_file, index=False)
 	return Path(output_file)
 
 
 def main():
 	"""Load the case study data, populate derived arrays, and build the model."""
 	data = load_and_populate_route_events()
-	headway_file = export_minimum_headways_csv(
+	headway_file = export_minimum_headways_parquet(
 		events=Events,
 		headway_edges=E_headway,
 		headway_time_minimums=headway_time_min,
@@ -2530,6 +2903,13 @@ def main():
 		model.write(iis_file)
 		print(f"Model is infeasible; IIS written to {iis_file}")
 	elif model.SolCount > 0:
+		validate_solution_event_order(
+			model=model,
+			x=variables["x"],
+			events=Events,
+			route_graphs=data["route_graphs"],
+		)
+		print("Solution event-order check passed")
 		train_schedule = build_train_schedule_output(
 			model=model,
 			x=variables["x"],
@@ -2537,9 +2917,19 @@ def main():
 			route_graphs=data["route_graphs"],
 		)
 		data["train_schedule"] = train_schedule
-		schedule_file = export_train_schedule_csv(train_schedule)
-		data["train_schedule_file"] = schedule_file
-		print(f"Train schedule written to {schedule_file}")
+		schedule_csv_file = export_train_schedule_csv(train_schedule)
+		schedule_parquet_file = export_train_schedule_parquet(train_schedule)
+		data["train_schedule_csv_file"] = schedule_csv_file
+		data["train_schedule_file"] = schedule_parquet_file
+		print(f"Train schedule CSV written to {schedule_csv_file}")
+		print(f"Train schedule Parquet written to {schedule_parquet_file}")
+		event_times_file = export_train_event_times_parquet(
+			events=Events,
+			x=variables["x"],
+			route_graphs=data["route_graphs"],
+		)
+		data["train_event_times_file"] = event_times_file
+		print(f"All train event times written to {event_times_file}")
 	return data, model, variables
 
 # Size-independent constants and bootstrap collections.
@@ -2669,14 +3059,19 @@ def build_sequence_optimization_model(
 
 	#travel time of train t
 	delta_t = model.addVars(range(len(train_services)), vtype=GRB.CONTINUOUS, name="dt", lb=0)
-	event_key_pairs = [
-		(first_key, second_key)
-		for first_key in event_key_values
-		for second_key in event_key_values
-	]
+	event_key_to_dense_index = {
+		key: index for index, key in enumerate(event_key_values)
+	}
+	event_indices = range(len(event_key_values))
 
 	#=1 if i is before j, 0 otherwise
-	a = model.addVars(event_key_pairs, vtype=GRB.BINARY, name="a")
+	a = model.addVars(event_indices, event_indices, vtype=GRB.BINARY, name="a")
+
+	def ordering_variable(first_key, second_key):
+		return a[
+			event_key_to_dense_index[first_key],
+			event_key_to_dense_index[second_key],
+		]
 
 	#difference between the scheduled and actual time of event i
 	ad = model.addVars([event_key_fn(index) for index in initial_event_ids],vtype=GRB.CONTINUOUS,name="ad",lb=0)
@@ -2686,7 +3081,7 @@ def build_sequence_optimization_model(
 		+ objective_additional_duration * gp.quicksum(
 			delta_t[service["internal_id"]]
 			for service in additional_train_services
-		)
+		)/N_additional
 	)
 
 	services_by_id = {
@@ -2773,9 +3168,9 @@ def build_sequence_optimization_model(
 		(
 			x[event_key_fn(j)] - x[event_key_fn(i)]
 			>= headway_time_minimums[i, j]
-			* a[event_key_fn(i), event_key_fn(j)]
+			* ordering_variable(event_key_fn(i), event_key_fn(j))
 			- big_m * (
-				1 - a[event_key_fn(i), event_key_fn(j)]
+				1 - ordering_variable(event_key_fn(i), event_key_fn(j))
 			)
 			for i, j in headway_edges
 		),
@@ -2786,8 +3181,8 @@ def build_sequence_optimization_model(
 		(
 			x[event_key_fn(i)] - x[event_key_fn(j)]
 			>= headway_time_minimums[j, i]
-			* (1 - a[event_key_fn(i), event_key_fn(j)])
-			- big_m * a[event_key_fn(i), event_key_fn(j)]
+			* (1 - ordering_variable(event_key_fn(i), event_key_fn(j)))
+			- big_m * ordering_variable(event_key_fn(i), event_key_fn(j))
 			for i, j in headway_edges
 		),
 		name="headway_constraint_2",
@@ -2829,6 +3224,7 @@ class event:
 		route_id=None,
 		related_route_id=None,
 		node=None,
+		endpoint_type="station",
 	):
 		self.event_id = event_id
 		self.service_id_internal = service_id_internal
@@ -2843,6 +3239,7 @@ class event:
 		self.route_id = route_id
 		self.related_route_id = related_route_id
 		self.node = node
+		self.endpoint_type = endpoint_type
 		self.window_min: int | None = None
 		self.window_max: int | None = None
 

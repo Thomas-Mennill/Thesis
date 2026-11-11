@@ -1,5 +1,5 @@
 ﻿,VIRM-4,VIRM-6,SLT-4,SLT-6,Freight Train Full,Freight Train Empty,ICE-3NEO,FLIRT-4,FLIRT-5,FLIRT-6,SNG-3,SNG-4,GTW-2,GTW-3,Protos,Mat-64,,ICM-3,ICM-4,DDZ-4,DDZ-6,ICNG-5,ICNG-8,Maglev,Combined Behaviour
-max_speed (km/h),160,160,160,160,95,95,,,,,,,,,,,,,,,,,,500,Min
+max_speed (km/h),160,160,160,160,80,80,,,,,,,,,,,,,,,,,,500,Min
 Mass (kg),262018.2716,391000,129000,176000,2400000,786000,,,,,,,,,,,,,,,,,,318000,Sum
 Brake Acceleration (m/s^2),0.5,0.5,0.5,0.5,0.5,0.5,,,,,,,,,,,,,,,,,,1,Min
 Power (W),1445456.296,2157000,1260000,1755000,5600000,5600000,,,,,,,,,,,,,,,,,,3000000,Sum
